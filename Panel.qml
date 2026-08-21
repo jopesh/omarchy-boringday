@@ -289,6 +289,25 @@ Panel {
     Qt.callLater(function () { keyCatcher.forceActiveFocus() })
   }
 
+  // Whatever ends up on the wall becomes the piece the panel is describing —
+  // including one that arrived from a shuffle, a keybinding, or a rotation that
+  // fired while the panel was closed. The service has already put it in the
+  // list by the time this runs.
+  Connections {
+    target: root.service
+    function onApplied(piece) { root.selectPiece(piece) }
+  }
+
+  function selectPiece(piece) {
+    if (!piece) return
+    for (var i = 0; i < pieces.length; i++) {
+      if (pieces[i].id === piece.id) {
+        selectedIndex = i
+        return
+      }
+    }
+  }
+
   // A fresh fetch can shrink the list under a cursor that was parked at the end.
   onPiecesChanged: {
     if (selectedIndex >= pieces.length) selectedIndex = 0

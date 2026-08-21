@@ -48,6 +48,13 @@ In the panel:
 | `i`       | Cycle the rotation period                  |
 | `Esc`     | Close                                      |
 
+A piece you shuffle to — from the button, `s`, the bar pill's right-click, a
+keybinding, or a scheduled rotation — joins the list and becomes the previewed
+piece, so the wallpaper you just landed on is always one you can read about.
+The random endpoint returns the full record, so nothing extra is fetched for
+it beyond a thumbnail. Today's piece keeps its place at the front; the oldest
+of the other two drops off.
+
 **Today and two more** is a selector, not a set of buttons. Clicking a row
 previews that piece — its image, title, credit and description — and hovering
 only highlights. Choosing is separate from applying: the wall changes when you

@@ -106,12 +106,39 @@ Item {
   property string status: ""
 
   readonly property var today: pieces.length > 0 ? pieces[0] : null
+  readonly property int pieceLimit: 3
   // Phrased for the panel's "every ..." caption and the IPC replies, both of
   // which read it straight after the word "every".
   readonly property string intervalLabel: Model.everyLabel(intervalSeconds)
 
   signal applied(var piece)
   signal downloaded(string path)
+
+  // A shuffle and a scheduled rotation both come from the random endpoint, so
+  // the piece they land on was never part of today's triple and the panel had
+  // no way to describe the wallpaper it had just set. That response already
+  // carries the whole record — title, artist, date, school, description — so
+  // nothing extra is fetched here beyond the thumbnail: the piece just needs
+  // somewhere to live. It goes in directly behind today's, pushing the oldest
+  // of the others out, which keeps the list at its three slots and today's
+  // piece at the front where the panel expects it.
+  function rememberPiece(piece) {
+    if (!piece || !piece.id) return
+    var next = []
+    var todayPiece = pieces.length > 0 && pieces[0].isToday === true ? pieces[0] : null
+    if (todayPiece && todayPiece.id !== piece.id) next.push(todayPiece)
+    next.push(piece)
+    for (var i = 0; i < pieces.length && next.length < pieceLimit; i++) {
+      var candidate = pieces[i]
+      if (!candidate || candidate.id === piece.id) continue
+      if (todayPiece && candidate.id === todayPiece.id) continue
+      next.push(candidate)
+    }
+    pieces = next
+    // Kicked off now rather than after the wallpaper lands, so the panel has
+    // the preview ready by the time the full-size image finishes downloading.
+    fetchThumbnails()
+  }
 
   // --------------------------------------------------------------- fetching
 
@@ -251,6 +278,7 @@ Item {
       Qt.callLater(requestRandom)
       return
     }
+    rememberPiece(piece)
     apply(piece, shuffleReason)
   }
 
