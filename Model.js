@@ -129,6 +129,18 @@ function subtitle(piece) {
   return parts.join("  ·  ")
 }
 
+// One elided line under the title: who, when, and what school. Folding these
+// into a single line keeps the block a fixed height no matter which fields a
+// given piece happens to carry.
+function credit(piece) {
+  if (!piece) return ""
+  var parts = [piece.artist]
+  if (piece.creationDate) parts.push(piece.creationDate)
+  if (piece.movement) parts.push(piece.movement)
+  else if (piece.genre) parts.push(piece.genre)
+  return parts.join("  ·  ")
+}
+
 function provenance(piece) {
   if (!piece) return ""
   var parts = []

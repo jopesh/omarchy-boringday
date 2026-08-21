@@ -40,13 +40,28 @@ In the panel:
 | `Enter`   | Set the piece under the cursor as the background |
 | `s`       | Shuffle — set a random piece               |
 | `d`       | Save a copy of the previewed piece to your pictures folder |
+| `e`       | Expand or collapse a truncated description |
 | `o`       | Open the piece's page on anotherboring.day |
 | `r`       | Fetch today's set again                    |
 | `a`       | Toggle automatic rotation                  |
 | `i`       | Cycle the rotation interval                |
 | `Esc`     | Close                                      |
 
+Descriptions are clamped to three lines; when there is more, a **Show more**
+link appears under them (`e` toggles it from the keyboard). Expanding is the
+only thing that changes the popup's content height — see below.
+
 **Recently set** lists the last few pieces you used; pick one to put it back.
+
+### A note on layout
+
+The popup is a fixed size and never resizes. Every block that renders
+per-piece text — title, credit, description, status — reserves a height
+measured from the theme's own font, and holds it whether the text is short,
+long, or missing. Browsing the three pieces therefore swaps pixels and moves
+nothing: no reflow, no jumping, no resizing card. Content that legitimately
+grows — an expanded description, a new history row — extends the scroll area
+rather than the window.
 
 ## From the command line
 
