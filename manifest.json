@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "id": "boringday.wallpapers",
+  "name": "Another Boring Piece",
+  "version": "1.0.0",
+  "author": "John Schmidt",
+  "license": "MIT",
+  "description": "Hand-picked fine art from anotherboring.day as your Omarchy background, with optional rotation on a schedule.",
+  "homepage": "https://anotherboring.day",
+  "kinds": [
+    "bar-widget",
+    "service"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Another Boring Piece",
+    "description": "Today's piece plus two more, set as your background in a click.",
+    "category": "Media",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "autoRotate": false,
+      "intervalSeconds": 3600,
+      "notify": true
+    },
+    "schema": [
+      {
+        "key": "autoRotate",
+        "type": "boolean",
+        "label": "Rotate automatically",
+        "defaultValue": false,
+        "description": "Pick a fresh piece on a schedule while the shell is running."
+      },
+      {
+        "key": "intervalSeconds",
+        "type": "integer",
+        "label": "Rotation interval (seconds)",
+        "min": 300,
+        "max": 86400,
+        "step": 300,
+        "defaultValue": 3600
+      },
+      {
+        "key": "notify",
+        "type": "boolean",
+        "label": "Notify on change",
+        "defaultValue": true,
+        "description": "Send a notification naming the piece each time the background changes."
+      }
+    ]
+  }
+}
