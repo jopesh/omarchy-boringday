@@ -138,8 +138,9 @@ Panel {
     if (dy === 0) return
     cursorIndex = Math.max(0, Math.min(cursorRows.length - 1, cursorIndex + dy))
     var row = cursorRow()
-    // Moving over a piece previews it, so arrow keys browse rather than
-    // requiring a select-then-look two-step.
+    // Arrow keys browse: unlike hover, moving the cursor here is a deliberate
+    // keypress, so it previews as it goes rather than making the keyboard do a
+    // select-then-look two-step.
     if (row && row.kind === "piece") selectedIndex = row.index
     scrollCursorIntoView()
   }
@@ -157,7 +158,10 @@ Panel {
   function activateCursor() {
     var row = cursorRow()
     if (!row) return
-    if (row.kind === "piece") setPiece(pieces[row.index])
+    // Deliberately the selected piece rather than the row under the cursor:
+    // the pointer can rest on a row that is not the one being previewed, and
+    // Enter must set the piece the user is actually looking at.
+    if (row.kind === "piece") setSelected()
     else if (row.kind === "auto") toggleAuto()
   }
 
@@ -739,15 +743,17 @@ Panel {
 
     Component.onCompleted: root.registerCursorItem("piece", rowIndex, pieceRow)
 
+    // Hover moves the cursor ring and nothing else; the click is what chooses
+    // the piece. Selecting on hover meant dragging the pointer across the list
+    // on the way to a button repainted the preview and the metadata behind it.
+    // Choosing is not the same as applying: this list previews, and the wall
+    // only changes on the Set button, the preview image, or Enter.
     MouseArea {
       anchors.fill: parent
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
-      onEntered: {
-        root.focusRow("piece", pieceRow.rowIndex)
-        root.selectedIndex = pieceRow.rowIndex
-      }
-      onClicked: root.setPiece(pieceRow.piece)
+      onEntered: root.focusRow("piece", pieceRow.rowIndex)
+      onClicked: root.selectedIndex = pieceRow.rowIndex
     }
 
     Rectangle {

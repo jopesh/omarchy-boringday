@@ -37,7 +37,7 @@ In the panel:
 | Key       | Action                                    |
 |-----------|-------------------------------------------|
 | `↑` / `↓` | Move the cursor; browsing a piece previews it |
-| `Enter`   | Set the piece under the cursor as the background |
+| `Enter`   | Set the previewed piece as the background  |
 | `s`       | Shuffle — set a random piece               |
 | `d`       | Save a copy of the previewed piece to your pictures folder |
 | `e`       | Expand or collapse a truncated description |
@@ -46,6 +46,12 @@ In the panel:
 | `a`       | Toggle automatic rotation                  |
 | `i`       | Cycle the rotation interval                |
 | `Esc`     | Close                                      |
+
+**Today and two more** is a selector, not a set of buttons. Clicking a row
+previews that piece — its image, title, credit and description — and hovering
+only highlights. Choosing is separate from applying: the wall changes when you
+press the 󰸉 button, click the large preview, or hit `Enter`. Arrow keys are a
+deliberate keypress, so they browse as they move.
 
 Descriptions are clamped to three lines; when there is more, a **Show more**
 link appears under them (`e` toggles it from the keyboard).
