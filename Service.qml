@@ -322,8 +322,8 @@ Item {
     applyProc.running = true
   }
 
-  function applyToday() {
-    if (today) apply(today, "today")
+  function applyToday(reason) {
+    if (today) apply(today, reason || "today")
     else refresh()
   }
 
@@ -335,7 +335,10 @@ Item {
     history = Model.pushHistory(history, Model.historyEntry(piece, reason, now), 30)
     persist()
     applied(piece)
-    if (notifyOnSwitch && reason !== "set") notify(piece)
+    // Notify only for changes the user is not already looking at: a scheduled
+    // rotation, or a keybinding that fired with no panel open. A click in the
+    // panel gets its feedback from the panel.
+    if (notifyOnSwitch && (reason === "auto" || reason === "cli")) notify(piece)
   }
 
   function notify(piece) {
@@ -513,12 +516,12 @@ Item {
     target: "boringday"
 
     function random(): string {
-      root.shuffle("shuffle")
+      root.shuffle("cli")
       return "Finding a piece…"
     }
 
     function today(): string {
-      root.applyToday()
+      root.applyToday("cli")
       return root.today ? root.today.name + " — " + root.today.artist : "Fetching today's piece…"
     }
 
