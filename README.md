@@ -139,6 +139,12 @@ no timer outside the session.
 | `~/.cache/omarchy/boringday/wallpapers/`      | Full-size images, newest 20 kept            |
 | `~/.cache/omarchy/boringday/thumbs/`          | Panel previews, newest 60 kept              |
 | `~/.local/state/omarchy/boringday/state.json` | Last change, current piece, recently-seen ids |
+
+The list of pieces itself is not persisted — it is rebuilt from the service on
+every start. The piece actually on your wall is, though, whole record and all,
+so it is put back on the list at startup without asking the server for
+anything, and the panel opens describing what is on screen rather than today's
+piece by default.
 | `$(xdg-user-dir PICTURES)`                    | Copies saved with `d`, never overwritten    |
 
 Setting a piece calls `omarchy-theme-bg-set`, which repoints Omarchy's current

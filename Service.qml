@@ -140,6 +140,18 @@ Item {
     fetchThumbnails()
   }
 
+  // The list is rebuilt from the network every start, so a piece that arrived
+  // from a shuffle is not in it — but `current` is persisted, whole record and
+  // all, so the wallpaper on screen can be put back on the list without asking
+  // the server for anything. Called from both sides of the startup race: the
+  // state file and the first fetch land in either order.
+  function ensureCurrentListed() {
+    if (!current || !current.id || pieces.length === 0) return
+    for (var i = 0; i < pieces.length; i++)
+      if (pieces[i].id === current.id) return
+    rememberPiece(current)
+  }
+
   // --------------------------------------------------------------- fetching
 
   function refresh() {
@@ -166,6 +178,9 @@ Item {
     pieces = parsed
     lastError = ""
     fetchThumbnails()
+    // Refreshing replaces the list wholesale, which would otherwise drop the
+    // wallpaper that is actually on screen out of the panel.
+    ensureCurrentListed()
   }
 
   Process {
@@ -505,6 +520,7 @@ Item {
     recentIds = state.recentIds
     current = state.current
     stateLoaded = true
+    ensureCurrentListed()
     if (autoRotate) catchUpTimer.restart()
   }
 

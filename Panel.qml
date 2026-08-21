@@ -309,9 +309,18 @@ Panel {
   }
 
   // A fresh fetch can shrink the list under a cursor that was parked at the end.
+  property bool landedOnCurrent: false
+
   onPiecesChanged: {
     if (selectedIndex >= pieces.length) selectedIndex = 0
     if (cursorIndex >= cursorRows.length) cursorIndex = Math.max(0, cursorRows.length - 1)
+    // Open the panel after a restart and it describes the wallpaper on screen,
+    // not today's piece by default. Once only: after this the selection is the
+    // user's to move.
+    if (!landedOnCurrent && pieces.length > 0) {
+      landedOnCurrent = true
+      if (service && service.current) selectPiece(service.current)
+    }
   }
 
   IpcHandler {
