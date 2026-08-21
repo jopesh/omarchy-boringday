@@ -41,7 +41,8 @@
         "min": 300,
         "max": 86400,
         "step": 300,
-        "defaultValue": 3600
+        "defaultValue": 3600,
+        "description": "The panel offers 1, 3, 12 and 24 hours (3600, 10800, 43200, 86400). Any other value in range is honoured too, it just matches none of the buttons."
       },
       {
         "key": "notify",

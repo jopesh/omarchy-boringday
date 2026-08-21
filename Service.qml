@@ -106,7 +106,9 @@ Item {
   property string status: ""
 
   readonly property var today: pieces.length > 0 ? pieces[0] : null
-  readonly property string intervalLabel: Model.intervalLabel(intervalSeconds)
+  // Phrased for the panel's "every ..." caption and the IPC replies, both of
+  // which read it straight after the word "every".
+  readonly property string intervalLabel: Model.everyLabel(intervalSeconds)
 
   signal applied(var piece)
   signal downloaded(string path)
@@ -538,7 +540,7 @@ Item {
       var wanted = Number(seconds)
       if (!isFinite(wanted) || wanted <= 0) return "Interval is " + root.intervalLabel
       root.setIntervalSeconds(wanted)
-      return "Rotating every " + Model.intervalLabel(wanted)
+      return "Rotating every " + Model.everyLabel(wanted)
     }
 
     function status(): string {

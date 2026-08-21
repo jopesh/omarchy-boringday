@@ -9,9 +9,10 @@ var API_TRIPLE = "https://service.anotherboring.day/api/wallpapers/raycast-tripl
 var API_RANDOM = "https://service.anotherboring.day/api/wallpapers/random-human"
 var ART_PAGE = "https://anotherboring.day/art/"
 
-// The presets the panel cycles through. A value set by hand in shell.json is
-// honored as-is; intervalLabel() just describes whatever it finds.
-var INTERVALS = [1800, 3600, 21600, 86400]
+// The rotation periods the panel offers. A value set by hand in shell.json is
+// still honored as-is — it simply matches no chip, and intervalLabel()
+// describes whatever it finds.
+var INTERVALS = [3600, 10800, 43200, 86400]
 var MIN_INTERVAL = 300
 var MAX_INTERVAL = 86400
 
@@ -21,9 +22,10 @@ function clampInterval(seconds) {
   return Math.max(MIN_INTERVAL, Math.min(MAX_INTERVAL, Math.round(n)))
 }
 
+// No days branch: the longest period on offer is 24 hours, and "24 hours"
+// is what the chip says, so "1 day" here would name the same choice twice.
 function intervalLabel(seconds) {
   var n = clampInterval(seconds)
-  if (n % 86400 === 0) return plural(n / 86400, "day")
   if (n % 3600 === 0) return plural(n / 3600, "hour")
   if (n % 60 === 0) return plural(n / 60, "minute")
   return plural(n, "second")
@@ -31,6 +33,34 @@ function intervalLabel(seconds) {
 
 function plural(count, unit) {
   return count + " " + unit + (count === 1 ? "" : "s")
+}
+
+// The chips the panel shows. ButtonGroup compares option values as strings,
+// so the seconds are stringified here rather than at the call site.
+// Reads after the word "every": "every hour", not "every 1 hour".
+function everyLabel(seconds) {
+  var n = clampInterval(seconds)
+  return n === 3600 ? "hour" : intervalLabel(n)
+}
+
+function intervalOptions() {
+  var out = []
+  for (var i = 0; i < INTERVALS.length; i++) {
+    out.push({
+      value: String(INTERVALS[i]),
+      label: (INTERVALS[i] / 3600) + "h",
+      tooltip: "Change every " + everyLabel(INTERVALS[i])
+    })
+  }
+  return out
+}
+
+// -1 for a value that is not one of the presets, so the panel can leave every
+// chip unselected rather than lying about which one is in force.
+function intervalIndex(seconds) {
+  var n = clampInterval(seconds)
+  for (var i = 0; i < INTERVALS.length; i++) if (INTERVALS[i] === n) return i
+  return -1
 }
 
 // Cycle to the next preset. An off-preset value snaps to the first preset

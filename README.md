@@ -44,7 +44,8 @@ In the panel:
 | `o`       | Open the piece's page on anotherboring.day |
 | `r`       | Fetch today's set again                    |
 | `a`       | Toggle automatic rotation                  |
-| `i`       | Cycle the rotation interval                |
+| `←` / `→` | Pick the rotation period when the cursor is on it |
+| `i`       | Cycle the rotation period                  |
 | `Esc`     | Close                                      |
 
 **Today and two more** is a selector, not a set of buttons. Clicking a row
@@ -111,9 +112,13 @@ three.
 ```jsonc
 { "id": "boringday.wallpapers",
   "autoRotate": true,        // rotate on a schedule
-  "intervalSeconds": 3600,   // 300 – 86400; the panel cycles 30m / 1h / 6h / 1d
+  "intervalSeconds": 3600,   // 1h / 3h / 12h / 24h from the panel
   "notify": true }           // notification naming each piece as it changes
 ```
+
+The rotation period is picked from the row of chips under the switch — 1, 3,
+12 or 24 hours. A value set by hand in `shell.json` is honoured as well; it
+simply matches no chip, and the line above them names it.
 
 The interval is wall-clock, not uptime: the time of the last change is
 persisted, so restarting the shell resumes the schedule instead of granting a

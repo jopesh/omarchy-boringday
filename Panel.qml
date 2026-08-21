@@ -118,6 +118,7 @@ Panel {
     var rows = []
     for (var i = 0; i < pieces.length; i++) rows.push({ kind: "piece", index: i })
     rows.push({ kind: "auto", index: 0 })
+    rows.push({ kind: "interval", index: 0 })
     return rows
   }
 
@@ -132,16 +133,34 @@ Panel {
     return row !== null && row.kind === kind && row.index === index
   }
 
+  // Which chip the keyboard is sitting on while the cursor is on the interval
+  // row. Distinct from which period is in force: you walk across the chips and
+  // then activate one, the same way ButtonGroup's own Tab focus behaves.
+  property int intervalCursor: 0
+  readonly property int intervalIndex:
+    service ? Model.intervalIndex(service.intervalSeconds) : -1
+  readonly property int intervalCount: Model.INTERVALS.length
+
   function moveCursor(dx, dy) {
     cursorActive = true
     if (cursorRows.length === 0) return
-    if (dy === 0) return
+    // Left/right walks the interval chips when the cursor is on that row, and
+    // means nothing anywhere else.
+    if (dy === 0) {
+      var here = cursorRow()
+      if (dx !== 0 && here && here.kind === "interval")
+        intervalCursor = Math.max(0, Math.min(intervalCount - 1, intervalCursor + dx))
+      return
+    }
     cursorIndex = Math.max(0, Math.min(cursorRows.length - 1, cursorIndex + dy))
     var row = cursorRow()
     // Arrow keys browse: unlike hover, moving the cursor here is a deliberate
     // keypress, so it previews as it goes rather than making the keyboard do a
     // select-then-look two-step.
     if (row && row.kind === "piece") selectedIndex = row.index
+    // Arriving on the chips, start from the period actually in force so the
+    // user sees their existing choice rather than a cursor parked elsewhere.
+    if (row && row.kind === "interval") intervalCursor = Math.max(0, intervalIndex)
     scrollCursorIntoView()
   }
 
@@ -163,6 +182,7 @@ Panel {
     // Enter must set the piece the user is actually looking at.
     if (row.kind === "piece") setSelected()
     else if (row.kind === "auto") toggleAuto()
+    else if (row.kind === "interval") setInterval(Model.INTERVALS[intervalCursor])
   }
 
   // Rows register themselves so scrollCursorIntoView can find the item under
@@ -251,6 +271,10 @@ Panel {
 
   function cycleInterval() {
     if (service) service.cycleInterval()
+  }
+
+  function setInterval(seconds) {
+    if (service) service.setIntervalSeconds(seconds)
   }
 
   implicitWidth: button.implicitWidth
@@ -683,25 +707,20 @@ Panel {
                   elide: Text.ElideRight
                 }
 
+                // Kept alongside the chips because it is the only thing that
+                // can describe a period set by hand in shell.json, which
+                // matches no chip.
                 Text {
                   id: intervalLabel
                   width: parent.width
                   height: root.captionHeight
-                  text: root.service ? "every " + root.service.intervalLabel + "  ·  click to change" : ""
-                  color: intervalMouse.containsMouse ? root.foreground : root.dim
+                  text: root.service ? "every " + root.service.intervalLabel : ""
+                  color: root.dim
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                   maximumLineCount: 1
                   elide: Text.ElideRight
                   verticalAlignment: Text.AlignVCenter
-
-                  MouseArea {
-                    id: intervalMouse
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.cycleInterval()
-                  }
                 }
               }
 
@@ -715,6 +734,44 @@ Panel {
                 foreground: root.foreground
                 onHovered: function (on) { if (on) root.focusRow("auto", 0) }
                 onToggled: root.toggleAuto()
+              }
+            }
+          }
+
+          // How often, as a row of chips rather than a value you cycle blindly.
+          // Not wrapped in a CursorSurface: ButtonGroup's chips paint their own
+          // selected and hover-cursor states from the same Style tokens, and a
+          // surface behind them would put two highlights on one row.
+          Item {
+            id: intervalRow
+            width: parent.width
+            implicitHeight: intervalGroup.implicitHeight
+
+            Component.onCompleted: root.registerCursorItem("interval", 0, intervalRow)
+
+            ButtonGroup {
+              id: intervalGroup
+              anchors.left: parent.left
+              anchors.leftMargin: Style.spacing.rowPaddingX / 2
+              anchors.verticalCenter: parent.verticalCenter
+              options: Model.intervalOptions()
+              // Unselects every chip when shell.json carries a period that is
+              // not one of the presets; the caption above still names it.
+              value: root.service ? String(root.service.intervalSeconds) : ""
+              foreground: root.foreground
+              accent: root.bar ? root.bar.urgent : Color.accent
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              // Panel-cursor driven, per ButtonGroup's contract: the panel owns
+              // the cursor, so the group must not also take Tab focus.
+              focusable: false
+              cursorIndex: root.rowHasCursor("interval", 0) ? root.intervalCursor : -1
+
+              onChanged: function (value) { root.setInterval(Number(value)) }
+              onHovered: function (index, isHovered) {
+                if (!isHovered) return
+                root.focusRow("interval", 0)
+                root.intervalCursor = index
               }
             }
           }
