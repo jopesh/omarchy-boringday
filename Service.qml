@@ -4,7 +4,7 @@ import Quickshell.Io
 import "Model.js" as Model
 
 // Headless half of the plugin: it owns every fetch, every download, the
-// rotation schedule, and the persisted history. The bar widget is a view onto
+// rotation schedule, and what is currently set. The bar widget is a view onto
 // this object, so a rotation keeps running with the panel closed — and with no
 // bar widget on screen at all, an `omarchy-shell boringday random` still works.
 Item {
@@ -96,7 +96,6 @@ Item {
   property var pieces: []
   property var thumbs: ({})
   property var current: null
-  property var history: []
   property var recentIds: []
   property double lastSwitchAt: 0
 
@@ -111,13 +110,6 @@ Item {
 
   signal applied(var piece)
   signal downloaded(string path)
-
-  function pieceById(id) {
-    for (var i = 0; i < pieces.length; i++) if (pieces[i].id === id) return pieces[i]
-    for (var h = 0; h < history.length; h++) if (history[h].id === id) return history[h]
-    if (current && current.id === id) return current
-    return null
-  }
 
   // --------------------------------------------------------------- fetching
 
@@ -332,7 +324,6 @@ Item {
     current = piece
     lastSwitchAt = now
     recentIds = Model.pushRecent(recentIds, piece.id, 5)
-    history = Model.pushHistory(history, Model.historyEntry(piece, reason, now), 30)
     persist()
     applied(piece)
     // Notify only for changes the user is not already looking at: a scheduled
@@ -482,7 +473,6 @@ Item {
     var state = Model.parseState(text)
     lastSwitchAt = state.lastSwitchAt
     recentIds = state.recentIds
-    history = state.history
     current = state.current
     stateLoaded = true
     if (autoRotate) catchUpTimer.restart()
@@ -492,7 +482,6 @@ Item {
     stateFile.setText(Model.stateJson({
       lastSwitchAt: lastSwitchAt,
       recentIds: recentIds,
-      history: history,
       current: current
     }))
   }

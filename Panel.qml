@@ -11,12 +11,12 @@ import "Model.js" as Model
 // the same thing, and closing the panel stops nothing.
 //
 // Layout rule for this file: nothing in the popup may change size because of
-// which piece is selected. Titles, credits, descriptions and status messages
-// all vary in length between pieces, so every block that renders them is given
-// a height derived from font metrics and holds it whether the text is short,
-// long, or absent. Browsing the three pieces then swaps pixels and moves
-// nothing. The single deliberate exception is expanding a description, which
-// is the user asking for the extra height.
+// which piece is selected. Titles, credits and descriptions all vary in length
+// between pieces, so every block that renders them is given a height measured
+// from the theme's own font and holds it whether the text is short, long, or
+// absent. Browsing the three pieces then swaps pixels and moves nothing. The
+// card itself is a fixed size; content that legitimately grows — an expanded
+// description — scrolls rather than resizing the window.
 Panel {
   id: root
   moduleName: "boringday.wallpapers"
@@ -30,7 +30,6 @@ Panel {
     ? bar.shell.serviceFor(moduleName) : null
 
   readonly property var pieces: service && service.pieces ? service.pieces : []
-  readonly property var history: service && service.history ? service.history.slice(0, historyLimit) : []
   readonly property bool ready: service !== null
 
   property int selectedIndex: 0
@@ -59,13 +58,6 @@ Panel {
     font.bold: true
   }
   Text {
-    id: bodySmallRef
-    visible: false
-    text: "X"
-    font.family: root.fontFamily
-    font.pixelSize: Style.font.bodySmall
-  }
-  Text {
     id: captionRef
     visible: false
     text: "X"
@@ -84,19 +76,14 @@ Panel {
 
   readonly property int descriptionLines: 3
   readonly property real titleHeight: Math.ceil(subtitleRef.implicitHeight)
-  readonly property real creditHeight: Math.ceil(captionRef.implicitHeight)
   readonly property real captionHeight: Math.ceil(captionRef.implicitHeight)
-  readonly property real statusHeight: Math.ceil(bodySmallRef.implicitHeight)
   readonly property real descriptionCollapsedHeight: Math.ceil(descriptionRef.implicitHeight)
 
   readonly property int pieceSlots: 3
-  readonly property int historyLimit: 3
   readonly property real listGap: Style.space(4)
   readonly property real pieceRowHeight: Style.space(30) + Style.spacing.labelGap * 2
-  readonly property real historyRowHeight:
-    Math.ceil(bodySmallRef.implicitHeight + captionRef.implicitHeight) + Style.spacing.labelGap * 2
   // The piece list holds all three slots from the first frame so the first
-  // fetch landing does not shove the rotation row and the history down.
+  // fetch landing does not shove the rotation row down.
   readonly property real pieceListHeight: pieceRowHeight * pieceSlots + listGap * (pieceSlots - 1)
 
   readonly property string previewSource: {
@@ -105,15 +92,18 @@ Panel {
     return path ? Util.fileUrl(path) : ""
   }
 
-  readonly property string statusLine: {
+  // Transient status shares the hero's subtitle instead of owning a row of its
+  // own. The hero line is always there and always one line tall, so routing
+  // "Saved to …" and errors through it costs no space and cannot shift
+  // anything; a dedicated status row sat empty most of the time and pushed the
+  // piece list around the rest of it.
+  readonly property string heroMeta: {
     if (!service) return "Plugin service is not loaded"
-    if (service.lastError) return service.lastError
+    if (service.lastError) return "󰀪  " + service.lastError
     if (service.status) return service.status
     if (service.applying) return "Setting background…"
-    if (service.loading && pieces.length === 0) return "Fetching today's piece…"
-    return ""
+    return "Daily fine art, hand-picked"
   }
-  readonly property bool statusIsError: service ? service.lastError !== "" : true
 
   // ------------------------------------------------------------- navigation
   //
@@ -128,7 +118,6 @@ Panel {
     var rows = []
     for (var i = 0; i < pieces.length; i++) rows.push({ kind: "piece", index: i })
     rows.push({ kind: "auto", index: 0 })
-    for (var h = 0; h < history.length; h++) rows.push({ kind: "history", index: h })
     return rows
   }
 
@@ -170,13 +159,12 @@ Panel {
     if (!row) return
     if (row.kind === "piece") setPiece(pieces[row.index])
     else if (row.kind === "auto") toggleAuto()
-    else if (row.kind === "history") setPiece(history[row.index])
   }
 
   // Rows register themselves so scrollCursorIntoView can find the item under
   // the cursor without the panel knowing how the view is nested. Keyed by
   // kind+index rather than by position in cursorRows: the first fetch pushes
-  // three piece rows in above everything else, and a positional key would
+  // three piece rows in above the rotation row, and a positional key would
   // point at the wrong item from then on.
   property var cursorItems: ({})
 
@@ -188,22 +176,25 @@ Panel {
     cursorItems[cursorItemKey(kind, index)] = item
   }
 
+  function scrollIntoView(item) {
+    if (!item || !panelFlick) return
+    var margin = Style.space(8)
+    var point = item.mapToItem(panelFlick.contentItem, 0, 0)
+    var top = point.y
+    var bottom = top + item.height
+    var viewTop = panelFlick.contentY
+    var viewBottom = viewTop + panelFlick.height
+    var maxY = Math.max(0, panelFlick.contentHeight - panelFlick.height)
+    if (top < viewTop + margin) panelFlick.contentY = Math.max(0, top - margin)
+    else if (bottom > viewBottom - margin)
+      panelFlick.contentY = Math.min(maxY, bottom + margin - panelFlick.height)
+  }
+
   function scrollCursorIntoView() {
     Qt.callLater(function () {
       var row = cursorRow()
-      if (!row || !panelFlick) return
-      var item = cursorItems[cursorItemKey(row.kind, row.index)]
-      if (!item) return
-      var margin = Style.space(8)
-      var point = item.mapToItem(panelFlick.contentItem, 0, 0)
-      var top = point.y
-      var bottom = top + item.height
-      var viewTop = panelFlick.contentY
-      var viewBottom = viewTop + panelFlick.height
-      var maxY = Math.max(0, panelFlick.contentHeight - panelFlick.height)
-      if (top < viewTop + margin) panelFlick.contentY = Math.max(0, top - margin)
-      else if (bottom > viewBottom - margin)
-        panelFlick.contentY = Math.min(maxY, bottom + margin - panelFlick.height)
+      if (!row) return
+      root.scrollIntoView(cursorItems[cursorItemKey(row.kind, row.index)])
     })
   }
 
@@ -219,6 +210,9 @@ Panel {
   function toggleDescription() {
     if (!descriptionExpanded && !descriptionTruncated) return
     descriptionExpanded = !descriptionExpanded
+    // The card does not grow, so bring the newly revealed text into view
+    // rather than leaving it below the fold.
+    if (descriptionExpanded) Qt.callLater(function () { root.scrollIntoView(descriptionBlock) })
   }
 
   onSelectedIndexChanged: descriptionExpanded = false
@@ -308,7 +302,14 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(400))
-    contentHeight: panel.cappedContentHeight(Style.space(600))
+    // Sized to the collapsed layout and held there. Subtracting the
+    // description's overflow keeps the argument independent of whether the
+    // description is expanded, so the card fits its content exactly on any
+    // theme and expanding scrolls instead of resizing the window.
+    // fittedContentHeight, not cappedContentHeight: only the former adds the
+    // card's own padding and borders, and without them the content scrolled by
+    // exactly that inset even when nothing had grown.
+    contentHeight: panel.fittedContentHeight(root.collapsedContentHeight)
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -357,7 +358,7 @@ Panel {
             id: hero
             width: parent.width
             title: "Another Boring Piece"
-            meta: "Daily fine art, hand-picked"
+            meta: root.heroMeta
             foreground: root.foreground
             fontFamily: root.fontFamily
             // Assigned to PanelHero's property, so this Component is created in
@@ -453,10 +454,27 @@ Panel {
             verticalAlignment: Text.AlignVCenter
           }
 
+          // Two reserved lines rather than one. Artist, date, movement and
+          // genre on a single line ran past the panel's width and elided the
+          // school off the end of every piece; split across who-and-when and
+          // what-school, each line has room to spare, and there is now space
+          // to show the genre alongside the movement instead of choosing.
           Text {
             width: parent.width
-            height: root.creditHeight
+            height: root.captionHeight
             text: root.selected ? Model.credit(root.selected) : ""
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            maximumLineCount: 1
+            elide: Text.ElideRight
+            verticalAlignment: Text.AlignVCenter
+          }
+
+          Text {
+            width: parent.width
+            height: root.captionHeight
+            text: root.selected ? Model.provenance(root.selected) : ""
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -467,9 +485,10 @@ Panel {
 
           // Reserved at three lines regardless of how much text the piece
           // carries, so switching pieces never moves anything below. Expanding
-          // is the one place the popup is allowed to change height, because
-          // the user asked it to.
+          // is the one place the content is allowed to grow, because the user
+          // asked it to — and it scrolls rather than resizing the card.
           Item {
+            id: descriptionBlock
             width: parent.width
             height: root.descriptionExpanded
               ? Math.max(root.descriptionCollapsedHeight, descriptionText.implicitHeight)
@@ -571,22 +590,6 @@ Panel {
             }
           }
 
-          // One reserved line. Status text arrives and leaves constantly —
-          // "Setting…", "Saved to /long/path", an error — and each transition
-          // would otherwise resize the popup. Elided in the middle so a saved
-          // path still shows both its directory and its file name.
-          Text {
-            width: parent.width
-            height: root.statusHeight
-            text: root.statusLine
-            color: root.statusIsError ? root.urgent : root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            maximumLineCount: 1
-            elide: Text.ElideMiddle
-            verticalAlignment: Text.AlignVCenter
-          }
-
           PanelSeparator {
             width: parent.width
             foreground: root.foreground
@@ -605,16 +608,6 @@ Panel {
             Item {
               width: parent.width
               height: root.pieceListHeight
-
-              Text {
-                anchors.centerIn: parent
-                visible: root.pieces.length === 0
-                text: root.service && root.service.loading
-                  ? "Loading…" : "Nothing loaded. Press r to try again."
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.bodySmall
-              }
 
               Column {
                 id: pieceColumn
@@ -721,62 +714,17 @@ Panel {
               }
             }
           }
-
-          // Last block in the column, so rows arriving as you set backgrounds
-          // extend the scrollable content downward and move nothing above.
-          Column {
-            width: parent.width
-            spacing: Style.space(8)
-
-            PanelSectionHeader {
-              text: "RECENTLY SET"
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-            }
-
-            Text {
-              width: parent.width
-              height: root.historyRowHeight
-              visible: root.history.length === 0
-              text: "Nothing set yet."
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-              verticalAlignment: Text.AlignVCenter
-            }
-
-            Column {
-              id: historyColumn
-              width: parent.width
-              spacing: root.listGap
-
-              Repeater {
-                model: root.history
-                HistoryRow {
-                  required property var modelData
-                  required property int index
-                  width: historyColumn.width
-                  entry: modelData
-                  rowIndex: index
-                }
-              }
-            }
-          }
         }
       }
     }
   }
 
-  // Re-render the "x ago" labels while the panel is open without a timer
-  // running behind a closed panel.
-  property double nowTick: 0
-  Timer {
-    interval: 30000
-    running: root.opened
-    repeat: true
-    triggeredOnStart: true
-    onTriggered: root.nowTick = Date.now()
-  }
+  // What the card is sized to: the column as it stands, minus however far the
+  // description has been expanded past its reserve. Constant in every state.
+  readonly property real descriptionOverflow:
+    Math.max(0, descriptionBlock.height - descriptionCollapsedHeight)
+  readonly property real collapsedContentHeight:
+    Math.max(1, column.implicitHeight - descriptionOverflow)
 
   component PieceRow: CursorSurface {
     id: pieceRow
@@ -853,74 +801,6 @@ Panel {
         font.pixelSize: Style.font.caption
         maximumLineCount: 1
         elide: Text.ElideRight
-      }
-    }
-  }
-
-  component HistoryRow: CursorSurface {
-    id: historyRow
-
-    property var entry: null
-    property int rowIndex: 0
-
-    hasCursor: root.rowHasCursor("history", rowIndex)
-    foreground: root.foreground
-    implicitHeight: root.historyRowHeight
-
-    Component.onCompleted: root.registerCursorItem("history", rowIndex, historyRow)
-
-    MouseArea {
-      anchors.fill: parent
-      hoverEnabled: true
-      cursorShape: Qt.PointingHandCursor
-      onEntered: root.focusRow("history", historyRow.rowIndex)
-      onClicked: root.setPiece(historyRow.entry)
-    }
-
-    Item {
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.leftMargin: Style.spacing.labelGap
-      anchors.rightMargin: Style.spacing.labelGap
-      anchors.verticalCenter: parent.verticalCenter
-      implicitHeight: historyLabels.implicitHeight
-
-      Column {
-        id: historyLabels
-        anchors.left: parent.left
-        anchors.right: agoText.left
-        anchors.rightMargin: Style.spacing.controlGap
-        spacing: 0
-
-        Text {
-          width: parent.width
-          text: historyRow.entry ? historyRow.entry.name : ""
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.bodySmall
-          maximumLineCount: 1
-          elide: Text.ElideRight
-        }
-
-        Text {
-          width: parent.width
-          text: historyRow.entry ? historyRow.entry.artist : ""
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          maximumLineCount: 1
-          elide: Text.ElideRight
-        }
-      }
-
-      Text {
-        id: agoText
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        text: historyRow.entry ? Model.ago(historyRow.entry.at, root.nowTick || Date.now()) : ""
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
       }
     }
   }

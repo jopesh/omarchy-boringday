@@ -48,20 +48,21 @@ In the panel:
 | `Esc`     | Close                                      |
 
 Descriptions are clamped to three lines; when there is more, a **Show more**
-link appears under them (`e` toggles it from the keyboard). Expanding is the
-only thing that changes the popup's content height — see below.
-
-**Recently set** lists the last few pieces you used; pick one to put it back.
+link appears under them (`e` toggles it from the keyboard).
 
 ### A note on layout
 
-The popup is a fixed size and never resizes. Every block that renders
-per-piece text — title, credit, description, status — reserves a height
-measured from the theme's own font, and holds it whether the text is short,
-long, or missing. Browsing the three pieces therefore swaps pixels and moves
-nothing: no reflow, no jumping, no resizing card. Content that legitimately
-grows — an expanded description, a new history row — extends the scroll area
-rather than the window.
+The popup is a fixed size and never resizes. It is sized to fit its collapsed
+content exactly, and every block that renders per-piece text — title, credit,
+provenance, description — reserves a height measured from the theme's own
+font and holds it whether the text is short, long, or missing. Browsing the
+three pieces therefore swaps pixels and moves nothing: no reflow, no jumping,
+no resizing card. Expanding a description scrolls the content rather than
+growing the window, and the panel scrolls the newly revealed text into view.
+
+Transient status — "Saved to …", errors — appears on the hero's subtitle line
+rather than in a row of its own, so it costs no space and cannot shift
+anything.
 
 ## From the command line
 
@@ -119,7 +120,7 @@ no timer outside the session.
 |----------------------------------------------|---------------------------------------------|
 | `~/.cache/omarchy/boringday/wallpapers/`      | Full-size images, newest 20 kept            |
 | `~/.cache/omarchy/boringday/thumbs/`          | Panel previews, newest 60 kept              |
-| `~/.local/state/omarchy/boringday/state.json` | History, last change, recently-seen ids     |
+| `~/.local/state/omarchy/boringday/state.json` | Last change, current piece, recently-seen ids |
 | `$(xdg-user-dir PICTURES)`                    | Copies saved with `d`, never overwritten    |
 
 Setting a piece calls `omarchy-theme-bg-set`, which repoints Omarchy's current
@@ -137,8 +138,8 @@ theme's rotation permanently, save it with `d` and copy it into
 Two entry points from one manifest:
 
 - **`Service.qml`** (`kind: service`) — headless, loaded once per session. Owns
-  every fetch, the download cache, the rotation schedule, the persisted
-  history, and the `boringday` IPC target.
+  every fetch, the download cache, the rotation schedule, what is currently
+  set, and the `boringday` IPC target.
 - **`Panel.qml`** (`kind: bar-widget`) — the bar pill and its popup. Pure view:
   it reads the service and calls into it. A bar surface exists per monitor, so
   the widget deliberately owns no state — two screens show the same thing, and

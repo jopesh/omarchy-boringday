@@ -129,15 +129,13 @@ function subtitle(piece) {
   return parts.join("  ·  ")
 }
 
-// One elided line under the title: who, when, and what school. Folding these
-// into a single line keeps the block a fixed height no matter which fields a
-// given piece happens to carry.
+// The panel gives the metadata two reserved lines: who and when on the first,
+// what school on the second. On one line the four fields ran past the panel's
+// width and elided the school off the end of every piece.
 function credit(piece) {
   if (!piece) return ""
   var parts = [piece.artist]
   if (piece.creationDate) parts.push(piece.creationDate)
-  if (piece.movement) parts.push(piece.movement)
-  else if (piece.genre) parts.push(piece.genre)
   return parts.join("  ·  ")
 }
 
@@ -161,30 +159,6 @@ function downloadName(piece) {
   return base + "-" + piece.id + extensionFor(piece.url)
 }
 
-function historyEntry(piece, reason, at) {
-  return {
-    id: piece.id,
-    name: piece.name,
-    artist: piece.artist,
-    creationDate: piece.creationDate,
-    url: piece.url,
-    artPage: piece.artPage,
-    externalUrl: piece.externalUrl,
-    reason: String(reason || "set"),
-    at: Number(at) || 0
-  }
-}
-
-function pushHistory(history, entry, cap) {
-  var limit = Number(cap) || 30
-  var out = [entry]
-  var list = Array.isArray(history) ? history : []
-  for (var i = 0; i < list.length && out.length < limit; i++) {
-    if (list[i] && list[i].id !== entry.id) out.push(list[i])
-  }
-  return out
-}
-
 function pushRecent(ids, id, cap) {
   var limit = Number(cap) || 5
   var out = [String(id)]
@@ -195,29 +169,16 @@ function pushRecent(ids, id, cap) {
   return out
 }
 
-function ago(ms, now) {
-  var delta = Math.max(0, (Number(now) || 0) - (Number(ms) || 0))
-  var minutes = Math.floor(delta / 60000)
-  if (minutes < 1) return "just now"
-  if (minutes < 60) return minutes + "m ago"
-  var hours = Math.floor(minutes / 60)
-  if (hours < 24) return hours + "h ago"
-  var days = Math.floor(hours / 24)
-  if (days < 7) return days + "d ago"
-  return Math.floor(days / 7) + "w ago"
-}
-
 // A corrupt or absent state file must not wedge the service, so every read
 // degrades to empty state rather than throwing.
 function parseState(text) {
-  var empty = { lastSwitchAt: 0, recentIds: [], history: [], current: null }
+  var empty = { lastSwitchAt: 0, recentIds: [], current: null }
   try {
     var json = JSON.parse(String(text || ""))
     if (!json || typeof json !== "object") return empty
     return {
       lastSwitchAt: Number(json.lastSwitchAt) || 0,
       recentIds: Array.isArray(json.recentIds) ? json.recentIds.map(String) : [],
-      history: Array.isArray(json.history) ? json.history : [],
       current: json.current && typeof json.current === "object" ? json.current : null
     }
   } catch (e) {
@@ -230,7 +191,6 @@ function stateJson(state) {
     version: 1,
     lastSwitchAt: Number(state.lastSwitchAt) || 0,
     recentIds: Array.isArray(state.recentIds) ? state.recentIds : [],
-    history: Array.isArray(state.history) ? state.history : [],
     current: state.current || null
   }, null, 2) + "\n"
 }
