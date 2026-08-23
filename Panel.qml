@@ -108,6 +108,9 @@ Panel {
     if (service.lastError) return "󰀪  " + service.lastError
     if (service.status) return service.status
     if (service.applying) return "Setting background…"
+    // Behind the transient lines rather than in front of them: it is true for
+    // the whole session, so it can wait for a quiet moment to be read.
+    if (service.stateError) return "󰀪  " + service.stateError
     return "Daily fine art, hand-picked"
   }
 

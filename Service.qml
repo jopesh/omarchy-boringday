@@ -104,6 +104,11 @@ Item {
   property bool applying: false
   property string lastError: ""
   property string status: ""
+  // lastError is the transient channel: every fetch clears it and the next
+  // failure replaces it. A startup that could not lay down its own state file
+  // is not transient — it lasts the session — so it gets a channel a
+  // successful refresh cannot wipe a second later.
+  property string stateError: ""
 
   readonly property var today: pieces.length > 0 ? pieces[0] : null
   readonly property int pieceLimit: 3
@@ -227,7 +232,10 @@ Item {
   readonly property string imageTools: [
     "image_ok() { # file max_bytes max_edge max_pixels",
     "  local file=$1 max_bytes=$2 max_edge=$3 max_pixels=$4 probe kind w h",
-    "  local size; size=$(wc -c < \"$file\") || return 1",
+    // Asked about a file that is not there yet on every apply, so the missing
+    // case is a quiet no rather than a redirect error on stderr.
+    "  [ -f \"$file\" ] || return 1",
+    "  local size; size=$(wc -c < \"$file\" 2>/dev/null) || return 1",
     "  [ \"$size\" -gt 0 ] && [ \"$size\" -le \"$max_bytes\" ] || return 1",
     "  if command -v identify >/dev/null 2>&1; then",
     "    probe=$(identify -quiet -ping -limit memory 64MiB -limit map 64MiB \\",
@@ -272,10 +280,20 @@ Item {
     "}"
   ].join("\n")
 
-  readonly property string thumbLimits: [Model.MAX_THUMB_BYTES,
-    Model.MAX_THUMB_EDGE, Model.MAX_THUMB_PIXELS].join(" ")
   readonly property string imageLimits: [Model.MAX_IMAGE_BYTES,
     Model.MAX_IMAGE_EDGE, Model.MAX_IMAGE_PIXELS].join(" ")
+
+  // Thumbnail ceilings are per piece rather than fixed, because a thumbnail is
+  // only a thumbnail when one of the two CDN rewrites matched. For any other
+  // host Model hands back the URL untouched — worse than a thumbnail, but not
+  // broken — and holding that full-size original to a 640px file's ceilings
+  // would refuse it on every fetch, blank the preview for good, and re-download
+  // it on every refresh.
+  function thumbLimitsFor(piece) {
+    return piece && piece.thumbnailIsOriginal
+      ? [Model.MAX_IMAGE_BYTES, Model.MAX_IMAGE_EDGE, Model.MAX_IMAGE_PIXELS]
+      : [Model.MAX_THUMB_BYTES, Model.MAX_THUMB_EDGE, Model.MAX_THUMB_PIXELS]
+  }
 
   // ------------------------------------------------------------ thumbnails
   //
@@ -292,11 +310,11 @@ Item {
     imageTools,
     "dir=$1",
     "mkdir -p \"$dir\"",
-    "while IFS=$'\\t' read -r id url; do",
+    "while IFS=$'\\t' read -r id url max_bytes max_edge max_pixels; do",
     "  if [ -z \"${id:-}\" ] || [ -z \"${url:-}\" ]; then continue; fi",
     "  out=\"$dir/$id.jpg\"",
     "  if [ -s \"$out\" ]; then continue; fi",
-    "  fetch_image \"$url\" \"$out\" " + thumbLimits + " 30 || true",
+    "  fetch_image \"$url\" \"$out\" \"$max_bytes\" \"$max_edge\" \"$max_pixels\" 30 || true",
     "done <<< \"$2\"",
     "{ ls -1t \"$dir\" 2>/dev/null || true; } | tail -n +61 | while IFS= read -r stale; do rm -f -- \"$dir/$stale\"; done"
   ].join("\n")
@@ -309,7 +327,8 @@ Item {
     }
     var lines = []
     for (var i = 0; i < pieces.length; i++)
-      lines.push(pieces[i].id + "\t" + pieces[i].thumbnailUrl)
+      lines.push([pieces[i].id, pieces[i].thumbnailUrl]
+        .concat(thumbLimitsFor(pieces[i])).join("\t"))
     thumbProc.command = ["bash", "-c", thumbScript, "boringday", thumbDir, lines.join("\n")]
     thumbProc.running = true
   }
@@ -412,14 +431,15 @@ Item {
     "out=$3",
     "dir=$(dirname \"$out\")",
     "mkdir -p \"$dir\"",
-    "if [ ! -s \"$out\" ]; then",
+    // Checked even when the cache already had it: the file is about to become
+    // the desktop background, and the cache directory is writable by anything
+    // running as the user. A cached file that fails is replaced rather than
+    // deleted — fetch_image only renames a validated file into place, so the
+    // old one survives a failed fetch. Deleting first would leave Omarchy's
+    // current-background symlink pointing at nothing.
+    "if ! image_ok \"$out\" " + imageLimits + "; then",
     "  fetch_image \"$url\" \"$out\" " + imageLimits + " 120",
     "fi",
-    // Re-checked even when the cache already had it: the file is about to
-    // become the desktop background, and the cache directory is writable by
-    // anything running as the user. Dropped rather than left in place, so the
-    // next attempt fetches it again instead of failing on it forever.
-    "if ! image_ok \"$out\" " + imageLimits + "; then rm -f \"$out\"; exit 1; fi",
     "touch \"$out\"",
     "omarchy-theme-bg-set \"$out\"",
     "{ ls -1t \"$dir\" 2>/dev/null || true; } | tail -n +21 | while IFS= read -r stale; do",
@@ -583,8 +603,11 @@ Item {
     "case ${theme:-} in \"\"|.|..|*/*) exit 4 ;; esac",
     "dir=\"$root/$theme\"",
     "mkdir -p \"$dir\"",
-    "if [ ! -s \"$src\" ]; then fetch_image \"$url\" \"$src\" " + imageLimits + " 120; fi",
-    "if ! image_ok \"$src\" " + imageLimits + "; then rm -f \"$src\"; exit 1; fi",
+    // As in applyScript: replaced, not deleted, because the wall may be
+    // resting on this very file.
+    "if ! image_ok \"$src\" " + imageLimits + "; then",
+    "  fetch_image \"$url\" \"$src\" " + imageLimits + " 120",
+    "fi",
     "out=\"$dir/$name\"",
     "if [ ! -s \"$out\" ]; then",
     // Written aside and renamed, so the theme's rotation never finds a
@@ -700,10 +723,17 @@ Item {
     command: ["bash", "-c", root.startupScript, "boringday",
       root.stateDir, root.wallpaperDir, root.thumbDir, root.statePath]
     onExited: function (exitCode) {
-      if (exitCode === 0) root.stateReady = true
-      // Nothing readable on disk and nowhere to write one, but the service
-      // still has to reach stateLoaded or rotation would never start.
-      else root.adoptState("")
+      if (exitCode === 0) {
+        root.stateReady = true
+        return
+      }
+      // Nothing readable on disk and nowhere to write one. The service still
+      // has to reach stateLoaded or rotation would never start, but it runs
+      // from here on without persistence — the schedule restarts from zero
+      // every session and shuffle stops avoiding what it just showed — so it
+      // says so rather than going quiet about it.
+      root.stateError = "Could not use the state file — nothing is remembered"
+      root.adoptState("")
     }
   }
 

@@ -190,6 +190,7 @@ function normalize(raw) {
   var id = String(raw.id)
   var url = boundedUrl(raw.url)
   if (!url) return null
+  var thumb = thumbnailUrl(url, 640)
   return {
     id: id,
     name: boundedText(raw.name, MAX_NAME_CHARS, "Untitled"),
@@ -199,8 +200,13 @@ function normalize(raw) {
     movement: boundedText(raw.movement, MAX_LINE_CHARS, ""),
     genre: boundedText(raw.genre, MAX_LINE_CHARS, ""),
     url: url,
-    thumbnailUrl: thumbnailUrl(url, 640),
+    thumbnailUrl: thumb,
     listThumbnailUrl: thumbnailUrl(url, 160),
+    // True when no CDN rewrite matched and the "thumbnail" is the full-size
+    // original. It is not a broken piece, but it is not a 640px file either,
+    // so it has to be held to the wallpaper's ceilings rather than the
+    // thumbnail's or it would be refused on every fetch.
+    thumbnailIsOriginal: thumb === url,
     externalUrl: boundedUrl(raw.externalUrl),
     artPage: ART_PAGE + id,
     releaseDate: boundedText(raw.releaseDate, MAX_LINE_CHARS, ""),
