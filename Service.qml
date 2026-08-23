@@ -468,6 +468,10 @@ Item {
     Quickshell.execDetached(["xdg-open", piece.artPage])
   }
 
+  function openSite() {
+    Quickshell.execDetached(["xdg-open", Model.SITE])
+  }
+
   // -------------------------------------------------------------- rotation
   //
   // The interval is wall-clock, not uptime: the last switch is persisted, so a

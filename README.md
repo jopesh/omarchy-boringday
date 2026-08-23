@@ -64,12 +64,19 @@ deliberate keypress, so they browse as they move.
 Descriptions are clamped to three lines; when there is more, a **Show more**
 link appears under them (`e` toggles it from the keyboard).
 
+The metadata above the description is one caption block rather than a stack of
+equal rows: the title and its credit sit tight together, and the movement and
+genre are demoted into chips wearing the same border the interval buttons wear
+further down. A quiet **anotherboring.day** link at the foot of the card opens
+the site.
+
 ### A note on layout
 
 The popup is a fixed size and never resizes. It is sized to fit its collapsed
 content exactly, and every block that renders per-piece text — title, credit,
-provenance, description — reserves a height measured from the theme's own
-font and holds it whether the text is short, long, or missing. Browsing the
+chips, description — reserves a height measured from the theme's own font and
+holds it whether the text is short, long, or missing. The chip row keeps its
+height with two chips, one, or none. Browsing the
 three pieces therefore swaps pixels and moves nothing: no reflow, no jumping,
 no resizing card. Expanding a description scrolls the content rather than
 growing the window, and the panel scrolls the newly revealed text into view.

@@ -267,6 +267,10 @@ Panel {
     if (service && selected) service.openArtPage(selected)
   }
 
+  function openSite() {
+    if (service) service.openSite()
+  }
+
   function refresh() {
     if (service) service.refresh()
   }
@@ -860,6 +864,37 @@ Panel {
                 root.focusRow("interval", 0)
                 root.intervalCursor = index
               }
+            }
+          }
+
+          // Where the art comes from. Centred rather than flush left, because
+          // every other line in the card is a control or a fact about the
+          // piece and this is neither — the different alignment is what says
+          // so at a glance. Deliberately not a cursor row: `o` already opens
+          // the page for the piece on screen, and a colophon does not need to
+          // be reachable from the keyboard.
+          Text {
+            id: siteCredit
+            width: parent.width
+            height: root.captionHeight
+            text: "anotherboring.day"
+            color: siteMouse.containsMouse ? root.foreground : root.dim
+            opacity: siteMouse.containsMouse ? 1.0 : 0.7
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+
+            MouseArea {
+              id: siteMouse
+              // Sized to the text, not the row: the whole width of the card
+              // should not read as a link.
+              width: siteCredit.implicitWidth
+              height: parent.height
+              anchors.horizontalCenter: parent.horizontalCenter
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.openSite()
             }
           }
         }

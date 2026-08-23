@@ -8,6 +8,7 @@
 var API_TRIPLE = "https://service.anotherboring.day/api/wallpapers/raycast-triple"
 var API_RANDOM = "https://service.anotherboring.day/api/wallpapers/random-human"
 var ART_PAGE = "https://anotherboring.day/art/"
+var SITE = "https://anotherboring.day/"
 
 // The rotation periods the panel offers. A value set by hand in shell.json is
 // still honored as-is — it simply matches no chip, and intervalLabel()
