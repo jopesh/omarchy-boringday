@@ -113,6 +113,7 @@ Item {
 
   signal applied(var piece)
   signal downloaded(string path)
+  signal installed(string theme)
 
   // A shuffle and a scheduled rotation both come from the random endpoint, so
   // the piece they land on was never part of today's triple and the panel had
@@ -548,6 +549,90 @@ Item {
     onTriggered: root.status = ""
   }
 
+  // ------------------------------------------------------- install to theme
+  //
+  // Setting a piece only moves Omarchy's current-background symlink, and that
+  // symlink belongs to the theme: switch themes, or cycle with `omarchy theme
+  // bg next`, and the piece is gone. Installing copies the image into the
+  // theme's own user backgrounds folder — the directory that rotation reads
+  // from — so the piece becomes one of the theme's backgrounds rather than a
+  // pointer into a cache that is pruned at twenty files.
+  //
+  // The copy is named for the piece, id included, so installing the same piece
+  // twice is a no-op rather than a second file. And if the wall is currently
+  // showing the cache copy of this very piece, the symlink is moved onto the
+  // installed one: same image on screen, but no longer resting on a file the
+  // next twenty switches will delete.
+
+  readonly property string themeNamePath: home + "/.local/state/omarchy/current/theme.name"
+  readonly property string backgroundLink: home + "/.local/state/omarchy/current/background"
+  readonly property string themeBackgroundsDir: home + "/.config/omarchy/backgrounds"
+
+  readonly property string installScript: [
+    "set -euo pipefail",
+    imageTools,
+    "export PATH=\"$1:$PATH\"",
+    "url=$2",
+    "src=$3",
+    "name=$4",
+    "root=$5",
+    "link=$6",
+    "theme=$(cat \"$7\" 2>/dev/null || true)",
+    // No theme, or a name that would not be a single directory under the
+    // backgrounds root: nothing sane to install into, so say so and stop.
+    "case ${theme:-} in \"\"|.|..|*/*) exit 4 ;; esac",
+    "dir=\"$root/$theme\"",
+    "mkdir -p \"$dir\"",
+    "if [ ! -s \"$src\" ]; then fetch_image \"$url\" \"$src\" " + imageLimits + " 120; fi",
+    "if ! image_ok \"$src\" " + imageLimits + "; then rm -f \"$src\"; exit 1; fi",
+    "out=\"$dir/$name\"",
+    "if [ ! -s \"$out\" ]; then",
+    // Written aside and renamed, so the theme's rotation never finds a
+    // half-copied file mid-install.
+    "  tmp=$(mktemp \"$dir/.tmp.XXXXXX\")",
+    "  cp -f \"$src\" \"$tmp\"",
+    "  chmod 644 \"$tmp\"",
+    "  mv -f \"$tmp\" \"$out\"",
+    "fi",
+    "if [ \"$(readlink -f \"$link\" 2>/dev/null || true)\" = \"$(readlink -f \"$src\")\" ]; then",
+    "  omarchy-theme-bg-set \"$out\"",
+    "fi",
+    "printf '%s' \"$theme\""
+  ].join("\n")
+
+  property string installedTheme: ""
+
+  function installToTheme(piece) {
+    if (!piece || !piece.url || installProc.running) return
+    status = "Adding " + piece.name + " to the theme…"
+    lastError = ""
+    installProc.command = ["bash", "-c", installScript, "boringday", binDir, piece.url,
+      wallpaperDir + "/" + piece.id + Model.extensionFor(piece.url),
+      Model.downloadName(piece), themeBackgroundsDir, backgroundLink, themeNamePath]
+    installProc.running = true
+  }
+
+  Process {
+    id: installProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      // A theme name off local state rather than the network, but it is drawn
+      // in the panel, so it is bounded like anything else that is.
+      onStreamFinished: root.installedTheme = Model.boundedText(text, Model.MAX_LINE_CHARS, "")
+    }
+    onExited: function (exitCode) {
+      if (exitCode === 0 && root.installedTheme) {
+        root.status = "Added to " + root.installedTheme
+        root.installed(root.installedTheme)
+        statusClear.restart()
+      } else {
+        root.status = ""
+        root.lastError = exitCode === 4 ? "No current theme to add it to"
+          : "Could not add that to the theme"
+      }
+    }
+  }
+
   function openArtPage(piece) {
     if (!piece) return
     Quickshell.execDetached(["xdg-open", piece.artPage])
@@ -690,6 +775,14 @@ Item {
     function current(): string {
       if (!root.current) return "Nothing set by this plugin yet"
       return root.current.name + " — " + root.current.artist
+    }
+
+    // Deliberately the piece on the wall rather than one of today's: from a
+    // keybinding there is nothing previewed to mean instead.
+    function install(): string {
+      if (!root.current) return "Nothing set by this plugin yet"
+      root.installToTheme(root.current)
+      return "Adding " + root.current.name + " to the current theme…"
     }
 
     function auto(state: string): string {
