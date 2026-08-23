@@ -186,6 +186,15 @@ transforms, response parsing, interval formatting, and state serialization.
 Images are fetched to disk with `curl` and rendered from local files, so a
 dropped network degrades to a stale preview rather than a broken one.
 
+Nothing off the network is taken on trust. Every response has a size `curl`
+refuses to exceed while it is still downloading, every record is cut to a
+bounded shape before the shell sees it, and every image is checked against its
+own header — type and decoded dimensions — before it is used as a preview or
+set as a background, so a small file claiming to be 30000×30000 is dropped
+rather than decoded. The state file gets the same treatment on the way back in:
+it is our own, but it lives somewhere writable, and it is read as if it were
+not. The ceilings are the `MAX_` constants at the top of `Model.js`.
+
 ## License
 
 MIT. The artwork itself belongs to anotherboring.day and the respective

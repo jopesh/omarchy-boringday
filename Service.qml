@@ -154,12 +154,30 @@ Item {
 
   // --------------------------------------------------------------- fetching
 
+  // Both API fetches go out like this. https only, a wall-clock timeout, and a
+  // ceiling curl applies to the body while it is still streaming rather than
+  // after the fact — the StdioCollector on the other end has no limit of its
+  // own and will hold whatever it is handed, so the producer is the only place
+  // a limit means anything. Past the ceiling curl gives up with exit 63 and
+  // the response is never parsed.
+  function jsonFetch(endpoint) {
+    return ["curl", "-fsS", "--proto", "=https",
+      "--max-time", "20", "--max-filesize", String(Model.MAX_JSON_CHARS),
+      endpoint + "?cacheBust=" + Date.now()]
+  }
+
+  // Worth telling apart from a dead network: the endpoint answered, it just
+  // answered with more than we agreed to read.
+  function fetchError(exitCode) {
+    return exitCode === 63 ? "anotherboring.day sent more than we will read"
+      : "Could not reach anotherboring.day"
+  }
+
   function refresh() {
     if (tripleProc.running) return
     lastError = ""
     loading = true
-    tripleProc.command = ["curl", "-fsS", "--max-time", "20",
-      Model.API_TRIPLE + "?cacheBust=" + Date.now()]
+    tripleProc.command = jsonFetch(Model.API_TRIPLE)
     tripleProc.running = true
   }
 
@@ -191,9 +209,72 @@ Item {
     }
     onExited: function (exitCode) {
       root.loading = false
-      if (exitCode !== 0) root.lastError = "Could not reach anotherboring.day"
+      if (exitCode !== 0) root.lastError = root.fetchError(exitCode)
     }
   }
+
+  // ----------------------------------------------------------- image tools
+  //
+  // Shared by every script below that pulls an image down, because they all
+  // need the same two things. curl stops at a byte ceiling instead of writing
+  // whatever the far end feels like sending, and nothing is moved into place
+  // until a header probe agrees the file is an image of a size we are willing
+  // to decode. A 200 KB PNG can unpack to gigabytes, so bytes alone bound
+  // nothing: the panel's Image and the desktop background should not be the
+  // first things to discover a 40000x40000 file.
+
+  readonly property string imageTools: [
+    "image_ok() { # file max_bytes max_edge max_pixels",
+    "  local file=$1 max_bytes=$2 max_edge=$3 max_pixels=$4 probe kind w h",
+    "  local size; size=$(wc -c < \"$file\") || return 1",
+    "  [ \"$size\" -gt 0 ] && [ \"$size\" -le \"$max_bytes\" ] || return 1",
+    "  if command -v identify >/dev/null 2>&1; then",
+    "    probe=$(identify -quiet -ping -limit memory 64MiB -limit map 64MiB \\",
+    "      -format '%m %w %h' \"$file[0]\" 2>/dev/null) || return 1",
+    "  else",
+    "    # No ImageMagick. file(1) names the type and the dimensions of every",
+    "    # format the CDNs actually serve except AVIF, which is refused here",
+    "    # rather than guessed at.",
+    "    local described; described=$(file -b -- \"$file\") || return 1",
+    "    case $described in",
+    "      JPEG\\ image\\ data*) kind=JPEG ;;",
+    "      PNG\\ image\\ data*) kind=PNG ;;",
+    "      GIF\\ image\\ data*) kind=GIF ;;",
+    "      *WebP\\ image*) kind=WEBP ;;",
+    "      *) return 1 ;;",
+    "    esac",
+    "    probe=\"$kind $(printf '%s' \"$described\" |",
+    "      sed -nE 's/.*[^0-9]([0-9]+) ?x ?([0-9]+).*/\\1 \\2/p')\"",
+    "  fi",
+    "  read -r kind w h <<< \"$probe\" || return 1",
+    "  case $kind in JPEG|PNG|WEBP|AVIF|GIF|BMP) ;; *) return 1 ;; esac",
+    "  [[ $w =~ ^[0-9]+$ && $h =~ ^[0-9]+$ ]] || return 1",
+    "  [ \"$w\" -ge 1 ] && [ \"$h\" -ge 1 ] || return 1",
+    "  [ \"$w\" -le \"$max_edge\" ] && [ \"$h\" -le \"$max_edge\" ] || return 1",
+    "  [ $((w * h)) -le \"$max_pixels\" ] || return 1",
+    "}",
+    "",
+    "fetch_image() { # url dest max_bytes max_edge max_pixels timeout",
+    "  local url=$1 dest=$2 max_bytes=$3 max_edge=$4 max_pixels=$5 timeout=$6",
+    "  local dir tmp",
+    "  dir=$(dirname \"$dest\")",
+    "  mkdir -p \"$dir\"",
+    "  tmp=$(mktemp \"$dir/.tmp.XXXXXX\")",
+    "  if ! curl -fsSL --proto '=https' --proto-redir '=https' --max-redirs 5 \\",
+    "      --max-time \"$timeout\" --max-filesize \"$max_bytes\" -o \"$tmp\" \"$url\"; then",
+    "    rm -f \"$tmp\"; return 1",
+    "  fi",
+    "  if ! image_ok \"$tmp\" \"$max_bytes\" \"$max_edge\" \"$max_pixels\"; then",
+    "    rm -f \"$tmp\"; return 1",
+    "  fi",
+    "  mv -f \"$tmp\" \"$dest\"",
+    "}"
+  ].join("\n")
+
+  readonly property string thumbLimits: [Model.MAX_THUMB_BYTES,
+    Model.MAX_THUMB_EDGE, Model.MAX_THUMB_PIXELS].join(" ")
+  readonly property string imageLimits: [Model.MAX_IMAGE_BYTES,
+    Model.MAX_IMAGE_EDGE, Model.MAX_IMAGE_PIXELS].join(" ")
 
   // ------------------------------------------------------------ thumbnails
   //
@@ -207,14 +288,14 @@ Item {
 
   readonly property string thumbScript: [
     "set -euo pipefail",
+    imageTools,
     "dir=$1",
     "mkdir -p \"$dir\"",
     "while IFS=$'\\t' read -r id url; do",
     "  if [ -z \"${id:-}\" ] || [ -z \"${url:-}\" ]; then continue; fi",
     "  out=\"$dir/$id.jpg\"",
     "  if [ -s \"$out\" ]; then continue; fi",
-    "  tmp=$(mktemp \"$dir/.tmp.XXXXXX\")",
-    "  if curl -fsSL --max-time 30 -o \"$tmp\" \"$url\"; then mv -f \"$tmp\" \"$out\"; else rm -f \"$tmp\"; fi",
+    "  fetch_image \"$url\" \"$out\" " + thumbLimits + " 30 || true",
     "done <<< \"$2\"",
     "{ ls -1t \"$dir\" 2>/dev/null || true; } | tail -n +61 | while IFS= read -r stale; do rm -f -- \"$dir/$stale\"; done"
   ].join("\n")
@@ -272,8 +353,7 @@ Item {
 
   function requestRandom() {
     shuffleAttempts += 1
-    randomProc.command = ["curl", "-fsS", "--max-time", "20",
-      Model.API_RANDOM + "?cacheBust=" + Date.now()]
+    randomProc.command = jsonFetch(Model.API_RANDOM)
     randomProc.running = true
   }
 
@@ -305,7 +385,7 @@ Item {
     }
     onExited: function (exitCode) {
       if (exitCode !== 0) {
-        root.lastError = "Could not reach anotherboring.day"
+        root.lastError = root.fetchError(exitCode)
         root.status = ""
       }
     }
@@ -325,16 +405,20 @@ Item {
 
   readonly property string applyScript: [
     "set -euo pipefail",
+    imageTools,
     "export PATH=\"$1:$PATH\"",
     "url=$2",
     "out=$3",
     "dir=$(dirname \"$out\")",
     "mkdir -p \"$dir\"",
     "if [ ! -s \"$out\" ]; then",
-    "  tmp=$(mktemp \"$dir/.tmp.XXXXXX\")",
-    "  if ! curl -fsSL --max-time 120 -o \"$tmp\" \"$url\"; then rm -f \"$tmp\"; exit 1; fi",
-    "  mv -f \"$tmp\" \"$out\"",
+    "  fetch_image \"$url\" \"$out\" " + imageLimits + " 120",
     "fi",
+    // Re-checked even when the cache already had it: the file is about to
+    // become the desktop background, and the cache directory is writable by
+    // anything running as the user. Dropped rather than left in place, so the
+    // next attempt fetches it again instead of failing on it forever.
+    "if ! image_ok \"$out\" " + imageLimits + "; then rm -f \"$out\"; exit 1; fi",
     "touch \"$out\"",
     "omarchy-theme-bg-set \"$out\"",
     "{ ls -1t \"$dir\" 2>/dev/null || true; } | tail -n +21 | while IFS= read -r stale; do",
@@ -411,6 +495,7 @@ Item {
 
   readonly property string downloadScript: [
     "set -euo pipefail",
+    imageTools,
     "url=$1",
     "name=$2",
     "dir=$(xdg-user-dir PICTURES 2>/dev/null || true)",
@@ -422,9 +507,7 @@ Item {
     "  out=\"$dir/${name%.*}-$n.${name##*.}\"",
     "  n=$((n + 1))",
     "done",
-    "tmp=$(mktemp \"$dir/.tmp.XXXXXX\")",
-    "if ! curl -fsSL --max-time 120 -o \"$tmp\" \"$url\"; then rm -f \"$tmp\"; exit 1; fi",
-    "mv -f \"$tmp\" \"$out\"",
+    "fetch_image \"$url\" \"$out\" " + imageLimits + " 120",
     "chmod 644 \"$out\"",
     "printf '%s' \"$out\""
   ].join("\n")
@@ -443,7 +526,9 @@ Item {
     id: downloadProc
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: root.downloadedPath = String(text || "").trim()
+      // The script prints one path, but a collector holds whatever it is
+      // given, so the path is taken at a length a path can actually be.
+      onStreamFinished: root.downloadedPath = String(text || "").trim().substring(0, Model.MAX_PATH_CHARS)
     }
     onExited: function (exitCode) {
       if (exitCode === 0 && root.downloadedPath) {
@@ -505,17 +590,49 @@ Item {
   onAutoRotateChanged: if (autoRotate && stateLoaded) catchUpTimer.restart()
 
   // ------------------------------------------------------------ persistence
+  //
+  // The directories this plugin owns are made once at startup, and the state
+  // file is measured in the same step. FileView reads whatever it is pointed
+  // at, however large, so the ceiling has to be applied before it is pointed
+  // at anything: an oversized file is deleted — it is a cache, and the next
+  // switch rewrites it — and anything that is not a plain file is refused.
+
+  property bool stateReady: false
+
+  readonly property string startupScript: [
+    "set -euo pipefail",
+    "mkdir -p \"$1\" \"$2\" \"$3\"",
+    "state=$4",
+    "if [ -h \"$state\" ]; then rm -f \"$state\"; fi",
+    "if [ -f \"$state\" ] && [ \"$(wc -c < \"$state\")\" -gt " + Model.MAX_STATE_CHARS + " ]; then",
+    "  rm -f \"$state\"",
+    "fi",
+    "if [ -e \"$state\" ] && [ ! -f \"$state\" ]; then exit 3; fi"
+  ].join("\n")
+
+  Process {
+    id: startupProc
+    command: ["bash", "-c", root.startupScript, "boringday",
+      root.stateDir, root.wallpaperDir, root.thumbDir, root.statePath]
+    onExited: function (exitCode) {
+      if (exitCode === 0) root.stateReady = true
+      // Nothing readable on disk and nowhere to write one, but the service
+      // still has to reach stateLoaded or rotation would never start.
+      else root.adoptState("")
+    }
+  }
 
   FileView {
     id: stateFile
-    path: root.statePath
+    path: root.stateReady ? root.statePath : ""
     watchChanges: false
     atomicWrites: true
     printErrors: false
     onLoaded: root.adoptState(text())
     // First run: no file yet. Without this the service would never reach
-    // stateLoaded, and rotation would never start.
-    onLoadFailed: root.adoptState("")
+    // stateLoaded, and rotation would never start. Guarded on stateReady so
+    // the empty path this starts with does not count as a failed read.
+    onLoadFailed: if (root.stateReady) root.adoptState("")
   }
 
   function adoptState(text) {
@@ -529,6 +646,7 @@ Item {
   }
 
   function persist() {
+    if (!stateReady) return
     stateFile.setText(Model.stateJson({
       lastSwitchAt: lastSwitchAt,
       recentIds: recentIds,
@@ -537,7 +655,7 @@ Item {
   }
 
   Component.onCompleted: {
-    Quickshell.execDetached(["mkdir", "-p", stateDir, wallpaperDir, thumbDir])
+    startupProc.running = true
     refresh()
   }
 
