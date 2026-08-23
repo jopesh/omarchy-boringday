@@ -164,17 +164,18 @@ function subtitle(piece) {
 // width and elided the school off the end of every piece.
 function credit(piece) {
   if (!piece) return ""
-  var parts = [piece.artist]
-  if (piece.creationDate) parts.push(piece.creationDate)
-  return parts.join("  ·  ")
+  if (!piece.creationDate) return piece.artist || ""
+  return (piece.artist || "") + ", " + piece.creationDate
 }
 
-function provenance(piece) {
-  if (!piece) return ""
-  var parts = []
-  if (piece.movement) parts.push(piece.movement)
-  if (piece.genre) parts.push(piece.genre)
-  return parts.join("  ·  ")
+// Movement and genre as a list rather than a joined string: the panel draws
+// them as separate chips, so it needs them apart.
+function tags(piece) {
+  if (!piece) return []
+  var out = []
+  if (piece.movement) out.push(piece.movement)
+  if (piece.genre) out.push(piece.genre)
+  return out
 }
 
 // A file name a human can recognize in ~/Pictures, with the id appended so two

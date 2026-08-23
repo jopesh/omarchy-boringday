@@ -78,6 +78,12 @@ Panel {
   readonly property real titleHeight: Math.ceil(subtitleRef.implicitHeight)
   readonly property real captionHeight: Math.ceil(captionRef.implicitHeight)
   readonly property real descriptionCollapsedHeight: Math.ceil(descriptionRef.implicitHeight)
+  // Same padding the TODAY badge puts around its own caption text, so the two
+  // small labelled surfaces in the card are the same size.
+  readonly property real chipHeight: captionHeight + Style.space(6)
+  readonly property real chipGap: Style.space(6)
+
+  readonly property var tags: selected ? Model.tags(selected) : []
 
   readonly property int pieceSlots: 3
   readonly property real listGap: Style.space(4)
@@ -495,48 +501,101 @@ Panel {
             }
           }
 
-          // One line, always one line. A two-line title on one piece and a
-          // one-line title on the next is a layout shift.
-          Text {
+          // Title, credit and school as one caption block instead of three
+          // rows spaced like sections. The column's 12px gap is what separates
+          // *sections* of the card; using it between a title and its own
+          // credit meant four facts of very different value all arrived at the
+          // same volume. Grouped and tiered instead — name in the subtitle
+          // face, artist and year a step down and tight against it, school and
+          // genre demoted out of running text into chips. Every height is
+          // still reserved: a piece with no school reserves the chip row all
+          // the same, so browsing moves nothing.
+          Column {
             width: parent.width
-            height: root.titleHeight
-            text: root.selected ? root.selected.name : "—"
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.subtitle
-            font.bold: true
-            maximumLineCount: 1
-            elide: Text.ElideRight
-            verticalAlignment: Text.AlignVCenter
-          }
+            spacing: Style.space(8)
 
-          // Two reserved lines rather than one. Artist, date, movement and
-          // genre on a single line ran past the panel's width and elided the
-          // school off the end of every piece; split across who-and-when and
-          // what-school, each line has room to spare, and there is now space
-          // to show the genre alongside the movement instead of choosing.
-          Text {
-            width: parent.width
-            height: root.captionHeight
-            text: root.selected ? Model.credit(root.selected) : ""
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            maximumLineCount: 1
-            elide: Text.ElideRight
-            verticalAlignment: Text.AlignVCenter
-          }
+            Column {
+              width: parent.width
+              spacing: Style.space(3)
 
-          Text {
-            width: parent.width
-            height: root.captionHeight
-            text: root.selected ? Model.provenance(root.selected) : ""
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            maximumLineCount: 1
-            elide: Text.ElideRight
-            verticalAlignment: Text.AlignVCenter
+              // One line, always one line. A two-line title on one piece and a
+              // one-line title on the next is a layout shift.
+              Text {
+                width: parent.width
+                height: root.titleHeight
+                text: root.selected ? root.selected.name : "—"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.subtitle
+                font.bold: true
+                maximumLineCount: 1
+                elide: Text.ElideRight
+                verticalAlignment: Text.AlignVCenter
+              }
+
+              Text {
+                width: parent.width
+                height: root.captionHeight
+                text: root.selected ? Model.credit(root.selected) : ""
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                maximumLineCount: 1
+                elide: Text.ElideRight
+                verticalAlignment: Text.AlignVCenter
+              }
+            }
+
+            // The chips borrow the same control border the interval buttons
+            // wear at the foot of the panel, so the school and genre read as
+            // labels rather than as more of the credit line. The Item holds
+            // the row's height whether there are two chips, one, or none.
+            Item {
+              id: chipRow
+              width: parent.width
+              height: root.chipHeight
+
+              Row {
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: root.chipGap
+
+                Repeater {
+                  model: root.tags
+
+                  BorderSurface {
+                    required property string modelData
+
+                    // Safety net for a freakishly long school name: share the
+                    // row evenly and elide. Real movement and genre names come
+                    // nowhere near the panel's width, so this never fires in
+                    // practice — it is here so that when it does, the chip
+                    // elides instead of pushing its neighbour off the card.
+                    readonly property real maxWidth: Math.max(Style.space(48),
+                      (chipRow.width - root.chipGap * (root.tags.length - 1)) / root.tags.length)
+
+                    implicitWidth: Math.min(chipLabel.implicitWidth + Style.space(16), maxWidth)
+                    implicitHeight: root.chipHeight
+                    color: "transparent"
+                    radius: Style.cornerRadius
+                    borderSpec: Border.controlSpec("normal", root.foreground, Color.accent)
+
+                    Text {
+                      id: chipLabel
+                      anchors.centerIn: parent
+                      width: Math.min(implicitWidth, parent.width - Style.space(16))
+                      text: modelData
+                      color: root.dim
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      maximumLineCount: 1
+                      elide: Text.ElideRight
+                      horizontalAlignment: Text.AlignHCenter
+                    }
+                  }
+                }
+              }
+            }
           }
 
           // Reserved at three lines regardless of how much text the piece
