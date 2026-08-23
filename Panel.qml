@@ -873,28 +873,49 @@ Panel {
           // so at a glance. Deliberately not a cursor row: `o` already opens
           // the page for the piece on screen, and a colophon does not need to
           // be reachable from the keyboard.
-          Text {
-            id: siteCredit
+          Item {
             width: parent.width
             height: root.captionHeight
-            text: "anotherboring.day"
-            color: siteMouse.containsMouse ? root.foreground : root.dim
-            opacity: siteMouse.containsMouse ? 1.0 : 0.7
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
 
-            MouseArea {
-              id: siteMouse
-              // Sized to the text, not the row: the whole width of the card
-              // should not read as a link.
-              width: siteCredit.implicitWidth
-              height: parent.height
-              anchors.horizontalCenter: parent.horizontalCenter
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: root.openSite()
+            Row {
+              anchors.centerIn: parent
+              // No vertical anchors on the children: both are set in the same
+              // face at the same size, so they share a height and line up on
+              // their own. Anchoring inside a positioner is what Row warns
+              // about.
+              spacing: Style.space(4)
+
+              Text {
+                height: root.captionHeight
+                text: "Curated by"
+                color: root.dim
+                opacity: 0.7
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                verticalAlignment: Text.AlignVCenter
+              }
+
+              // Only the domain is the link — "Curated by" is not clickable,
+              // and the hit area is the word itself rather than the width of
+              // the card, so crossing the row does not light up a link.
+              Text {
+                id: siteCredit
+                height: root.captionHeight
+                text: "anotherboring.day"
+                color: siteMouse.containsMouse ? root.foreground : root.dim
+                opacity: siteMouse.containsMouse ? 1.0 : 0.7
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                verticalAlignment: Text.AlignVCenter
+
+                MouseArea {
+                  id: siteMouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.openSite()
+                }
+              }
             }
           }
         }

@@ -67,8 +67,8 @@ link appears under them (`e` toggles it from the keyboard).
 The metadata above the description is one caption block rather than a stack of
 equal rows: the title and its credit sit tight together, and the movement and
 genre are demoted into chips wearing the same border the interval buttons wear
-further down. A quiet **anotherboring.day** link at the foot of the card opens
-the site.
+further down. A quiet *Curated by anotherboring.day* line sits at the foot of
+the card; the domain is the link.
 
 ### A note on layout
 
