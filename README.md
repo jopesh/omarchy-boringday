@@ -12,16 +12,21 @@ no API key, and no helper app.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/johnschmidt/omarchy-anotherboring-day.git --enable
+omarchy plugin add https://github.com/jopesh/omarchy-boringday.git --enable
 ```
 
 Or, for a checkout you already have on disk:
 
 ```bash
-git clone <repo> ~/.config/omarchy/plugins/boringday.wallpapers
+git clone https://github.com/jopesh/omarchy-boringday.git \
+  ~/.config/omarchy/plugins/boringday.wallpapers
 omarchy-shell shell rescanPlugins
 omarchy plugin enable boringday.wallpapers right
 ```
+
+The directory has to be named for the plugin id, `boringday.wallpapers`, not for
+the repo — that is where the shell looks. `omarchy plugin add` reads the id out
+of the manifest and does this for you.
 
 Requires Omarchy 4 (the Quickshell-based `omarchy-shell`), plus `curl` and
 `jq`, which Omarchy already ships.
