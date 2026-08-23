@@ -108,6 +108,9 @@ Panel {
     if (service.lastError) return "󰀪  " + service.lastError
     if (service.status) return service.status
     if (service.applying) return "Setting background…"
+    // Behind the transient lines rather than in front of them: it is true for
+    // the whole session, so it can wait for a quiet moment to be read.
+    if (service.stateError) return "󰀪  " + service.stateError
     return "Daily fine art, hand-picked"
   }
 
@@ -263,6 +266,10 @@ Panel {
     if (service && selected) service.download(selected)
   }
 
+  function installToTheme() {
+    if (service && selected) service.installToTheme(selected)
+  }
+
   function openArtPage() {
     if (service && selected) service.openArtPage(selected)
   }
@@ -391,6 +398,7 @@ Panel {
         var key = String(t).toLowerCase()
         if (key === "s") root.shuffle()
         else if (key === "d") root.download()
+        else if (key === "t") root.installToTheme()
         else if (key === "o") root.openArtPage()
         else if (key === "r") root.refresh()
         else if (key === "a") root.toggleAuto()
@@ -690,6 +698,14 @@ Panel {
               fontFamily: root.fontFamily
               enabled: root.selected !== null && root.ready
               onClicked: root.download()
+            }
+            PanelActionButton {
+              iconText: "󰍛"
+              tooltipText: "Add to the current theme  (t)"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              enabled: root.selected !== null && root.ready
+              onClicked: root.installToTheme()
             }
             PanelActionButton {
               iconText: "󰖟"

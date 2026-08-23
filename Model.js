@@ -17,6 +17,52 @@ var INTERVALS = [3600, 10800, 43200, 86400]
 var MIN_INTERVAL = 300
 var MAX_INTERVAL = 86400
 
+// ------------------------------------------------------------------ ceilings
+//
+// Everything that crosses the network is treated as hostile: the API is not
+// ours, the CDNs behind it are not ours, and the state file sits in a
+// directory anything running as the user can write to. So every payload gets a
+// size it is not allowed to exceed, and the ceiling is enforced where the data
+// is produced — curl stops downloading rather than the shell discovering the
+// problem once it is already holding the bytes. The numbers live here because
+// both halves need them: the parsers below, and the shell scripts the service
+// builds out of them.
+
+// A triple response is a few KB of JSON; our own state file is three records.
+var MAX_JSON_CHARS = 256 * 1024
+var MAX_STATE_CHARS = 64 * 1024
+
+// Bytes on the wire. A thumbnail is a 640px-wide re-encode; a wallpaper is the
+// full-size original, which for a museum scan can legitimately be tens of MB.
+var MAX_THUMB_BYTES = 8 * 1024 * 1024
+var MAX_IMAGE_BYTES = 64 * 1024 * 1024
+
+// Pixels after decoding, which is the number that actually costs memory: a
+// 200 KB PNG can unpack to gigabytes, so a byte ceiling alone bounds nothing.
+// Thumbnails are decoded by the panel itself and get the tighter pair; the
+// wallpaper is decoded by whatever paints the background, and 40 MP leaves
+// room for an 8K screen and then some.
+var MAX_THUMB_EDGE = 4000
+var MAX_THUMB_PIXELS = 8 * 1000 * 1000
+var MAX_IMAGE_EDGE = 12000
+var MAX_IMAGE_PIXELS = 40 * 1000 * 1000
+
+// Fields of a single record. These are not guesses at what the API sends but
+// ceilings on what we are willing to carry: an id becomes a file name, a name
+// becomes a notification argument, a description becomes a Text block.
+var MAX_ID_CHARS = 64
+var MAX_NAME_CHARS = 200
+var MAX_LINE_CHARS = 120
+var MAX_DESCRIPTION_CHARS = 4000
+var MAX_URL_CHARS = 2048
+var MAX_PATH_CHARS = 4096
+
+// Records per response: the service keeps three, and no response has a reason
+// to make us walk more than this looking for them.
+var MAX_SCANNED_RECORDS = 32
+var MAX_PIECES = 8
+var MAX_RECENT = 10
+
 function clampInterval(seconds) {
   var n = Number(seconds)
   if (!isFinite(n) || n <= 0) return 3600
@@ -73,6 +119,39 @@ function nextInterval(seconds) {
   return INTERVALS[0]
 }
 
+// --------------------------------------------------------------- sanitizing
+
+// Strings out of the payload end up in QML Text, in notification arguments and
+// in file names. Control characters are stripped rather than escaped — no
+// field here is meant to contain any — and every field is cut to a ceiling, so
+// one enormous value cannot be pasted through the whole UI.
+function boundedText(value, max, fallback) {
+  if (value === undefined || value === null) return fallback
+  var s = String(value).replace(/[\u0000-\u001f\u007f]+/g, " ").trim()
+  if (!s) return fallback
+  return s.length > max ? s.substring(0, max) : s
+}
+
+// A URL from the payload is handed to curl and, for the art page, to xdg-open.
+// Only https survives, and only the characters a URL is allowed to be made of:
+// that rules out an argument with a newline or a space in it as much as it
+// rules out file:// and data:.
+function boundedUrl(value) {
+  var u = String(value === undefined || value === null ? "" : value)
+  if (u.length === 0 || u.length > MAX_URL_CHARS) return ""
+  if (!/^https:\/\/[A-Za-z0-9._~:\/?#\[\]@!$&'()*+,;=%-]+$/.test(u)) return ""
+  return u
+}
+
+// The last cheap place to bound a payload is in front of JSON.parse, so that
+// is where it is bounded. Throws like the parse it wraps: every caller is
+// already prepared for a response it cannot read.
+function parseJson(text, maxChars) {
+  var s = String(text === undefined || text === null ? "" : text)
+  if (s.length > maxChars) throw new Error("payload exceeds " + maxChars + " characters")
+  return JSON.parse(s)
+}
+
 // anotherboring.day serves images from two CDNs, each with its own resize
 // syntax. Anything else is handed back untouched — a full-size fetch is worse
 // than a thumbnail, not broken.
@@ -99,7 +178,7 @@ function extensionFor(url) {
 }
 
 function isSafeId(id) {
-  return /^[A-Za-z0-9_-]+$/.test(String(id || ""))
+  return new RegExp("^[A-Za-z0-9_-]{1," + MAX_ID_CHARS + "}$").test(String(id || ""))
 }
 
 // Ids become file names in the cache directory, so a piece whose id is not a
@@ -109,22 +188,28 @@ function normalize(raw) {
   if (!raw || typeof raw !== "object") return null
   if (!isSafeId(raw.id)) return null
   var id = String(raw.id)
-  var url = String(raw.url || "")
-  if (url.indexOf("https://") !== 0) return null
+  var url = boundedUrl(raw.url)
+  if (!url) return null
+  var thumb = thumbnailUrl(url, 640)
   return {
     id: id,
-    name: String(raw.name || "Untitled"),
-    artist: String(raw.artist || "Unknown artist"),
-    creationDate: String(raw.creationDate || ""),
-    description: String(raw.description || ""),
-    movement: String(raw.movement || ""),
-    genre: String(raw.genre || ""),
+    name: boundedText(raw.name, MAX_NAME_CHARS, "Untitled"),
+    artist: boundedText(raw.artist, MAX_LINE_CHARS, "Unknown artist"),
+    creationDate: boundedText(raw.creationDate, MAX_LINE_CHARS, ""),
+    description: boundedText(raw.description, MAX_DESCRIPTION_CHARS, ""),
+    movement: boundedText(raw.movement, MAX_LINE_CHARS, ""),
+    genre: boundedText(raw.genre, MAX_LINE_CHARS, ""),
     url: url,
-    thumbnailUrl: thumbnailUrl(url, 640),
+    thumbnailUrl: thumb,
     listThumbnailUrl: thumbnailUrl(url, 160),
-    externalUrl: String(raw.externalUrl || ""),
+    // True when no CDN rewrite matched and the "thumbnail" is the full-size
+    // original. It is not a broken piece, but it is not a 640px file either,
+    // so it has to be held to the wallpaper's ceilings rather than the
+    // thumbnail's or it would be refused on every fetch.
+    thumbnailIsOriginal: thumb === url,
+    externalUrl: boundedUrl(raw.externalUrl),
     artPage: ART_PAGE + id,
-    releaseDate: String(raw.releaseDate || ""),
+    releaseDate: boundedText(raw.releaseDate, MAX_LINE_CHARS, ""),
     isToday: false
   }
 }
@@ -132,7 +217,8 @@ function normalize(raw) {
 // The triple endpoint returns { today, random: [...] }. Today comes back first
 // so the panel can label index 0 without a second lookup.
 function parseTriple(text) {
-  var json = JSON.parse(String(text || ""))
+  var json = parseJson(text, MAX_JSON_CHARS)
+  if (!json || typeof json !== "object") return []
   var out = []
   var today = normalize(json.today)
   if (today) {
@@ -140,7 +226,8 @@ function parseTriple(text) {
     out.push(today)
   }
   var list = Array.isArray(json.random) ? json.random : []
-  for (var i = 0; i < list.length; i++) {
+  var scanned = Math.min(list.length, MAX_SCANNED_RECORDS)
+  for (var i = 0; i < scanned && out.length < MAX_PIECES; i++) {
     var piece = normalize(list[i])
     if (!piece) continue
     if (today && piece.id === today.id) continue
@@ -150,7 +237,7 @@ function parseTriple(text) {
 }
 
 function parseOne(text) {
-  return normalize(JSON.parse(String(text || "")))
+  return normalize(parseJson(text, MAX_JSON_CHARS))
 }
 
 function subtitle(piece) {
@@ -192,26 +279,36 @@ function downloadName(piece) {
 }
 
 function pushRecent(ids, id, cap) {
-  var limit = Number(cap) || 5
-  var out = [String(id)]
+  var limit = Math.min(Number(cap) || 5, MAX_RECENT)
+  var out = isSafeId(id) ? [String(id)] : []
   var list = Array.isArray(ids) ? ids : []
   for (var i = 0; i < list.length && out.length < limit; i++) {
-    if (list[i] !== id) out.push(String(list[i]))
+    if (list[i] !== id && isSafeId(list[i])) out.push(String(list[i]))
   }
   return out
 }
 
 // A corrupt or absent state file must not wedge the service, so every read
-// degrades to empty state rather than throwing.
+// degrades to empty state rather than throwing. The file is ours but the
+// directory it lives in is writable, and what comes out of it is not inert:
+// `current` is handed to curl and drawn in the panel, so it goes through the
+// same normalize() as a fresh API record rather than being trusted for having
+// been on disk. A timestamp in the future would park the rotation for as long
+// as it is wrong, so it is clamped to now.
 function parseState(text) {
   var empty = { lastSwitchAt: 0, recentIds: [], current: null }
   try {
-    var json = JSON.parse(String(text || ""))
+    var json = parseJson(text, MAX_STATE_CHARS)
     if (!json || typeof json !== "object") return empty
+    var when = Number(json.lastSwitchAt)
+    var ids = []
+    var list = Array.isArray(json.recentIds) ? json.recentIds : []
+    for (var i = 0; i < list.length && ids.length < MAX_RECENT; i++)
+      if (isSafeId(list[i])) ids.push(String(list[i]))
     return {
-      lastSwitchAt: Number(json.lastSwitchAt) || 0,
-      recentIds: Array.isArray(json.recentIds) ? json.recentIds.map(String) : [],
-      current: json.current && typeof json.current === "object" ? json.current : null
+      lastSwitchAt: isFinite(when) && when > 0 ? Math.min(when, Date.now()) : 0,
+      recentIds: ids,
+      current: normalize(json.current)
     }
   } catch (e) {
     return empty

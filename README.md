@@ -4,10 +4,11 @@ Hand-picked fine art from [anotherboring.day](https://anotherboring.day) as your
 Omarchy background. A pill in the bar opens today's piece plus two more, one
 click sets any of them, and an optional schedule keeps the wall moving.
 
-This is the Omarchy port of the
+The Omarchy port of the
 [Raycast extension](https://github.com/raycast/extensions/tree/main/extensions/another-boring-piece)
-of the same name. It talks to the same public endpoints and needs no account,
-no API key, and no helper app.
+of the same name: same public endpoints, no account, no API key.
+
+Requires Omarchy 4 (the Quickshell-based `omarchy-shell`).
 
 ## Install
 
@@ -15,7 +16,8 @@ no API key, and no helper app.
 omarchy plugin add https://github.com/jopesh/omarchy-boringday.git --enable
 ```
 
-Or, for a checkout you already have on disk:
+Or from a checkout — the directory must be named for the plugin id, since that
+is where the shell looks:
 
 ```bash
 git clone https://github.com/jopesh/omarchy-boringday.git \
@@ -24,80 +26,51 @@ omarchy-shell shell rescanPlugins
 omarchy plugin enable boringday.wallpapers right
 ```
 
-The directory has to be named for the plugin id, `boringday.wallpapers`, not for
-the repo — that is where the shell looks. `omarchy plugin add` reads the id out
-of the manifest and does this for you.
-
-Requires Omarchy 4 (the Quickshell-based `omarchy-shell`), plus `curl` and
-`jq`, which Omarchy already ships.
-
 ## Using it
 
-Click the 󰋩 pill in the bar to open the panel. The pill turns to the accent
-color while automatic rotation is on. Right-click shuffles a random piece
-without opening anything; middle-click refetches today's set.
+Click the 󰋩 pill to open the panel; right-click shuffles a random piece without
+opening anything, middle-click refetches today's set. The pill takes the accent
+color while rotation is on.
 
-In the panel:
+The three rows are a selector: browsing previews a piece, and the wall only
+changes when you set it.
 
-| Key       | Action                                    |
-|-----------|-------------------------------------------|
-| `↑` / `↓` | Move the cursor; browsing a piece previews it |
-| `Enter`   | Set the previewed piece as the background  |
-| `s`       | Shuffle — set a random piece               |
-| `d`       | Save a copy of the previewed piece to your pictures folder |
-| `e`       | Expand or collapse a truncated description |
-| `o`       | Open the piece's page on anotherboring.day |
-| `r`       | Fetch today's set again                    |
-| `a`       | Toggle automatic rotation                  |
-| `←` / `→` | Pick the rotation period when the cursor is on it |
-| `i`       | Cycle the rotation period                  |
-| `Esc`     | Close                                      |
+| Key       | Action                                            |
+|-----------|---------------------------------------------------|
+| `↑` / `↓` | Move the cursor — browsing a piece previews it     |
+| `Enter`   | Set the previewed piece as the background          |
+| `s`       | Shuffle — set a random piece                       |
+| `t`       | Add the previewed piece to the current theme       |
+| `d`       | Save a copy to your pictures folder                |
+| `e`       | Expand or collapse a truncated description         |
+| `o`       | Open the piece's page on anotherboring.day         |
+| `r`       | Fetch today's set again                            |
+| `a`       | Toggle automatic rotation                          |
+| `←` / `→` | Pick the rotation period when the cursor is on it  |
+| `i`       | Cycle the rotation period                          |
+| `Esc`     | Close                                              |
 
-A piece you shuffle to — from the button, `s`, the bar pill's right-click, a
-keybinding, or a scheduled rotation — joins the list and becomes the previewed
-piece, so the wallpaper you just landed on is always one you can read about.
-The random endpoint returns the full record, so nothing extra is fetched for
-it beyond a thumbnail. Today's piece keeps its place at the front; the oldest
-of the other two drops off.
+### Keeping a piece
 
-**Today and two more** is a selector, not a set of buttons. Clicking a row
-previews that piece — its image, title, credit and description — and hovering
-only highlights. Choosing is separate from applying: the wall changes when you
-press the 󰸉 button, click the large preview, or hit `Enter`. Arrow keys are a
-deliberate keypress, so they browse as they move.
+Setting a piece moves Omarchy's current-background symlink, and that symlink
+belongs to the theme — switch themes, or cycle with `omarchy theme bg next`,
+and the piece is gone.
 
-Descriptions are clamped to three lines; when there is more, a **Show more**
-link appears under them (`e` toggles it from the keyboard).
-
-The metadata above the description is one caption block rather than a stack of
-equal rows: the title and its credit sit tight together, and the movement and
-genre are demoted into chips wearing the same border the interval buttons wear
-further down. A quiet *Curated by anotherboring.day* line sits at the foot of
-the card; the domain is the link.
-
-### A note on layout
-
-The popup is a fixed size and never resizes. It is sized to fit its collapsed
-content exactly, and every block that renders per-piece text — title, credit,
-chips, description — reserves a height measured from the theme's own font and
-holds it whether the text is short, long, or missing. The chip row keeps its
-height with two chips, one, or none. Browsing the
-three pieces therefore swaps pixels and moves nothing: no reflow, no jumping,
-no resizing card. Expanding a description scrolls the content rather than
-growing the window, and the panel scrolls the newly revealed text into view.
-
-Transient status — "Saved to …", errors — appears on the hero's subtitle line
-rather than in a row of its own, so it costs no space and cannot shift
-anything.
+`t` makes it permanent: the image is copied into
+`~/.config/omarchy/backgrounds/<theme>/`, the folder that rotation reads from,
+so the piece becomes one of the theme's own backgrounds. Adding the same piece
+twice does nothing, and if it is the piece on screen the symlink moves onto the
+permanent copy.
 
 ## From the command line
 
-The service registers a `boringday` IPC target, so everything works without the
-bar widget on screen — from a keybinding, a script, or over ssh into the session.
+The service registers a `boringday` IPC target, so everything works with no bar
+widget on screen — from a keybinding, a script, or over ssh into the session.
 
 ```bash
 omarchy-shell boringday random          # set a random piece now
 omarchy-shell boringday today           # set today's piece
+omarchy-shell boringday install         # add the piece on the wall to this theme
 omarchy-shell boringday auto toggle     # on | off | toggle
 omarchy-shell boringday interval 1800   # seconds
 omarchy-shell boringday current         # what's on the wall
@@ -111,22 +84,11 @@ A Hyprland binding, in `~/.config/hypr/bindings.conf`:
 bindd = SUPER SHIFT, W, Another boring piece, exec, omarchy-shell boringday random
 ```
 
-An entry in `~/.config/omarchy/extensions/omarchy-menu.jsonc`:
-
-```jsonc
-{
-  "title": "Boring piece",
-  "icon": "󰋩",
-  "action": "omarchy-shell boringday random"
-}
-```
-
 ## Settings
 
 Settings live inline on the plugin's entry in `~/.config/omarchy/shell.json`,
-the same place every other bar widget keeps its settings. The panel's toggle
-and the `boringday auto` IPC call both write here, so there is one switch, not
-three.
+the same place every other bar widget keeps its settings — so the panel's
+toggle and the `boringday auto` call are the same switch.
 
 ```jsonc
 { "id": "boringday.wallpapers",
@@ -135,58 +97,41 @@ three.
   "notify": true }           // notification naming each piece as it changes
 ```
 
-The rotation period is picked from the row of chips under the switch — 1, 3,
-12 or 24 hours. A value set by hand in `shell.json` is honoured as well; it
-simply matches no chip, and the line above them names it.
-
-The interval is wall-clock, not uptime: the time of the last change is
-persisted, so restarting the shell resumes the schedule instead of granting a
-fresh hour. Rotation only advances while `omarchy-shell` is running — there is
-no timer outside the session.
+The interval is wall-clock, not uptime: the last change is persisted, so
+restarting the shell resumes the schedule rather than granting a fresh hour.
+Rotation only advances while `omarchy-shell` is running.
 
 ## Where things land
 
-| Path                                         | What                                        |
-|----------------------------------------------|---------------------------------------------|
-| `~/.cache/omarchy/boringday/wallpapers/`      | Full-size images, newest 20 kept            |
-| `~/.cache/omarchy/boringday/thumbs/`          | Panel previews, newest 60 kept              |
-| `~/.local/state/omarchy/boringday/state.json` | Last change, current piece, recently-seen ids |
+| Path                                          | What                                              |
+|-----------------------------------------------|---------------------------------------------------|
+| `~/.cache/omarchy/boringday/wallpapers/`      | Full-size images, newest 20 kept                  |
+| `~/.cache/omarchy/boringday/thumbs/`          | Panel previews, newest 60 kept                    |
+| `~/.local/state/omarchy/boringday/state.json` | Last change, current piece, recently-seen ids     |
+| `~/.config/omarchy/backgrounds/<theme>/`      | Pieces added with `t`, kept until you delete them |
+| `$(xdg-user-dir PICTURES)`                    | Copies saved with `d`, never overwritten          |
 
-The list of pieces itself is not persisted — it is rebuilt from the service on
-every start. The piece actually on your wall is, though, whole record and all,
-so it is put back on the list at startup without asking the server for
-anything, and the panel opens describing what is on screen rather than today's
-piece by default.
-| `$(xdg-user-dir PICTURES)`                    | Copies saved with `d`, never overwritten    |
-
-Setting a piece calls `omarchy-theme-bg-set`, which repoints Omarchy's current
-background symlink — the same path the built-in background switcher uses.
-
-**One consequence worth knowing:** the background belongs to the current theme.
-Switching themes, or cycling with `omarchy theme bg next`, moves you back to
-that theme's own backgrounds. Re-open the panel and press `Enter` (or bind
-`boringday current`) to put the piece back. If you would rather a piece join a
-theme's rotation permanently, save it with `d` and copy it into
-`~/.config/omarchy/backgrounds/<theme>/`.
+The list of pieces is not persisted — it is rebuilt on every start. The piece
+on your wall is, whole record and all, so the panel opens describing what is on
+screen without asking the server for anything.
 
 ## How it fits together
 
-Two entry points from one manifest:
+`Service.qml` is headless and loaded once per session: it owns every fetch, the
+caches, the rotation schedule, and the `boringday` IPC target. `Panel.qml` is
+the bar pill and its popup, and pure view — a bar surface exists per monitor,
+so it owns no state. `Model.js` holds the parts worth reading alone: the CDN
+thumbnail transforms, response parsing, and state serialization.
 
-- **`Service.qml`** (`kind: service`) — headless, loaded once per session. Owns
-  every fetch, the download cache, the rotation schedule, what is currently
-  set, and the `boringday` IPC target.
-- **`Panel.qml`** (`kind: bar-widget`) — the bar pill and its popup. Pure view:
-  it reads the service and calls into it. A bar surface exists per monitor, so
-  the widget deliberately owns no state — two screens show the same thing, and
-  closing the panel stops nothing.
-
-`Model.js` holds the parts worth reading on their own: the two CDN thumbnail
-transforms, response parsing, interval formatting, and state serialization.
 Images are fetched to disk with `curl` and rendered from local files, so a
-dropped network degrades to a stale preview rather than a broken one.
+dropped network degrades to a stale preview rather than a broken one. Nothing
+off the network is taken on trust: responses have a size `curl` refuses to
+exceed mid-download, records are cut to a bounded shape, and every image is
+checked against its own header — type and decoded dimensions — before it is
+previewed or set. The ceilings are the `MAX_` constants at the top of
+`Model.js`.
 
 ## License
 
-MIT. The artwork itself belongs to anotherboring.day and the respective
-museums and estates; this plugin only points your desktop at it.
+MIT. The artwork belongs to anotherboring.day and the respective museums and
+estates; this plugin only points your desktop at it.
