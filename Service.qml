@@ -33,22 +33,19 @@ Item {
   // and rotation must have exactly one owner.
   readonly property var settings: entryFor(shell ? shell.shellConfig : null)
 
+  // The bar's three sections in the order they are drawn, then the plugins
+  // list. One scan over all four: the first entry claiming this plugin's id
+  // wins, wherever it happens to have been written.
   function entryFor(config) {
     if (!config || typeof config !== "object") return ({})
-    var sections = ["left", "center", "right"]
-    var layout = config.bar && config.bar.layout ? config.bar.layout : null
-    for (var s = 0; s < sections.length; s++) {
-      var entries = layout ? layout[sections[s]] : null
-      if (!Array.isArray(entries)) continue
-      for (var i = 0; i < entries.length; i++) {
-        var entry = entries[i]
-        if (entry && typeof entry === "object" && String(entry.id) === pluginId) return entry
-      }
-    }
-    var plugins = Array.isArray(config.plugins) ? config.plugins : []
-    for (var p = 0; p < plugins.length; p++) {
-      var pluginEntry = plugins[p]
-      if (pluginEntry && typeof pluginEntry === "object" && String(pluginEntry.id) === pluginId) return pluginEntry
+    var layout = config.bar && config.bar.layout ? config.bar.layout : ({})
+    var lists = [layout.left, layout.center, layout.right, config.plugins]
+    var entries = []
+    for (var l = 0; l < lists.length; l++)
+      if (Array.isArray(lists[l])) entries = entries.concat(lists[l])
+    for (var i = 0; i < entries.length; i++) {
+      var entry = entries[i]
+      if (entry && typeof entry === "object" && String(entry.id) === pluginId) return entry
     }
     return ({})
   }
@@ -199,7 +196,12 @@ Item {
       lastError = "anotherboring.day returned no pieces"
       return
     }
-    pieces = parsed
+    // parseTriple will hand back as many records as the response carries, up
+    // to its own ceiling. The list has one length everywhere else — the panel
+    // reserves exactly this many rows and rememberPiece has always trimmed to
+    // it — so a longer response is cut here rather than painting over the rest
+    // of the popup.
+    pieces = parsed.slice(0, pieceLimit)
     lastError = ""
     fetchThumbnails()
     // Refreshing replaces the list wholesale, which would otherwise drop the
@@ -217,6 +219,25 @@ Item {
       root.loading = false
       if (exitCode !== 0) root.lastError = root.fetchError(exitCode)
     }
+  }
+
+  // ------------------------------------------------------------ script calls
+  //
+  // Every script below is started through here, so the incantation is written
+  // once: a wall clock, bash, the script, and the name bash reports it by —
+  // "boringday" is $0, not an argument any script reads, which is why the
+  // arguments passed here start at $1.
+  //
+  // The wall clock is the point of it. Each script either reaches the network
+  // or hands off to another program, and a Process that never exits leaves the
+  // flag that guards it raised for the rest of the session: one
+  // omarchy-theme-bg-set that never returns and no later shuffle, rotation or
+  // Set is so much as attempted. The bound sits well past the sum of the curl
+  // timeouts inside the script — it is there to catch a hang, not to cut work
+  // short — and a script killed at it exits 124, which every handler below
+  // already reads as the failure it is.
+  function scriptCommand(seconds, body, args) {
+    return ["timeout", "-k", "5", String(seconds), "bash", "-c", body, "boringday"].concat(args)
   }
 
   // ----------------------------------------------------------- image tools
@@ -277,6 +298,18 @@ Item {
     "    rm -f \"$tmp\"; return 1",
     "  fi",
     "  mv -f \"$tmp\" \"$dest\"",
+    "}",
+    "",
+    "ensure_image() { # url file max_bytes max_edge max_pixels timeout",
+    // Checked even when the file is already in the cache: it is about to
+    // become the desktop background, and the cache directory is writable by
+    // anything running as the user. A file that fails is replaced rather than
+    // deleted — fetch_image only renames a validated file into place, so the
+    // old one survives a failed fetch. Deleting first would leave Omarchy's
+    // current-background symlink pointing at nothing.
+    "  if ! image_ok \"$2\" \"$3\" \"$4\" \"$5\"; then",
+    "    fetch_image \"$1\" \"$2\" \"$3\" \"$4\" \"$5\" \"$6\"",
+    "  fi",
     "}"
   ].join("\n")
 
@@ -329,13 +362,18 @@ Item {
     for (var i = 0; i < pieces.length; i++)
       lines.push([pieces[i].id, pieces[i].thumbnailUrl]
         .concat(thumbLimitsFor(pieces[i])).join("\t"))
-    thumbProc.command = ["bash", "-c", thumbScript, "boringday", thumbDir, lines.join("\n")]
+    thumbProc.command = scriptCommand(300, thumbScript, [thumbDir, lines.join("\n")])
     thumbProc.running = true
   }
 
+  // Rebuilt from the list rather than added to. Carrying old keys forward
+  // grew the map by a piece per rotation for the life of the session — and
+  // copied the whole of it again on every publish — to hold paths nothing
+  // reads: the panel only ever asks about a piece that is in the list, and a
+  // piece that comes back into it is republished by the fetch that precedes
+  // every publish.
   function publishThumbnails() {
     var next = ({})
-    for (var key in thumbs) next[key] = thumbs[key]
     for (var i = 0; i < pieces.length; i++)
       next[pieces[i].id] = thumbDir + "/" + pieces[i].id + ".jpg"
     thumbs = next
@@ -360,12 +398,14 @@ Item {
 
   readonly property int shuffleAttemptLimit: 3
   property int shuffleAttempts: 0
+  property bool retryPending: false
   property string shuffleReason: "shuffle"
 
   function shuffle(reason) {
     if (randomProc.running || applying) return
     shuffleReason = reason || "shuffle"
     shuffleAttempts = 0
+    retryPending = false
     status = "Finding a piece…"
     lastError = ""
     requestRandom()
@@ -389,8 +429,12 @@ Item {
       status = ""
       return
     }
+    // Asked again from onExited rather than from here. This runs on the
+    // stream, with the process still on its way out, and a command written to
+    // a Process that is still running is dropped — which lost the retry and
+    // left the status line saying "Finding a piece…" for good.
     if (recentIds.indexOf(piece.id) !== -1 && shuffleAttempts < shuffleAttemptLimit) {
-      Qt.callLater(requestRandom)
+      retryPending = true
       return
     }
     rememberPiece(piece)
@@ -405,8 +449,14 @@ Item {
     }
     onExited: function (exitCode) {
       if (exitCode !== 0) {
+        root.retryPending = false
         root.lastError = root.fetchError(exitCode)
         root.status = ""
+        return
+      }
+      if (root.retryPending) {
+        root.retryPending = false
+        Qt.callLater(root.requestRandom)
       }
     }
   }
@@ -431,15 +481,7 @@ Item {
     "out=$3",
     "dir=$(dirname \"$out\")",
     "mkdir -p \"$dir\"",
-    // Checked even when the cache already had it: the file is about to become
-    // the desktop background, and the cache directory is writable by anything
-    // running as the user. A cached file that fails is replaced rather than
-    // deleted — fetch_image only renames a validated file into place, so the
-    // old one survives a failed fetch. Deleting first would leave Omarchy's
-    // current-background symlink pointing at nothing.
-    "if ! image_ok \"$out\" " + imageLimits + "; then",
-    "  fetch_image \"$url\" \"$out\" " + imageLimits + " 120",
-    "fi",
+    "ensure_image \"$url\" \"$out\" " + imageLimits + " 120",
     "touch \"$out\"",
     "omarchy-theme-bg-set \"$out\"",
     "{ ls -1t \"$dir\" 2>/dev/null || true; } | tail -n +21 | while IFS= read -r stale; do",
@@ -459,8 +501,8 @@ Item {
     pendingPiece = piece
     pendingReason = reason || "set"
     status = "Setting " + piece.name + "…"
-    applyProc.command = ["bash", "-c", applyScript, "boringday", binDir, piece.url,
-      wallpaperDir + "/" + piece.id + Model.extensionFor(piece.url)]
+    applyProc.command = scriptCommand(300, applyScript, [binDir, piece.url,
+      wallpaperDir + "/" + piece.id + Model.extensionFor(piece.url)])
     applyProc.running = true
   }
 
@@ -475,6 +517,7 @@ Item {
     lastSwitchAt = now
     recentIds = Model.pushRecent(recentIds, piece.id, 5)
     persist()
+    armRotation()
     applied(piece)
     // Notify only for changes the user is not already looking at: a scheduled
     // rotation, or a keybinding that fired with no panel open. A click in the
@@ -539,7 +582,7 @@ Item {
     if (!piece || !piece.url || downloadProc.running) return
     status = "Saving " + piece.name + "…"
     lastError = ""
-    downloadProc.command = ["bash", "-c", downloadScript, "boringday", piece.url, Model.downloadName(piece)]
+    downloadProc.command = scriptCommand(180, downloadScript, [piece.url, Model.downloadName(piece)])
     downloadProc.running = true
   }
 
@@ -603,16 +646,16 @@ Item {
     "case ${theme:-} in \"\"|.|..|*/*) exit 4 ;; esac",
     "dir=\"$root/$theme\"",
     "mkdir -p \"$dir\"",
-    // As in applyScript: replaced, not deleted, because the wall may be
-    // resting on this very file.
-    "if ! image_ok \"$src\" " + imageLimits + "; then",
-    "  fetch_image \"$url\" \"$src\" " + imageLimits + " 120",
-    "fi",
+    "ensure_image \"$url\" \"$src\" " + imageLimits + " 120",
     "out=\"$dir/$name\"",
     "if [ ! -s \"$out\" ]; then",
     // Written aside and renamed, so the theme's rotation never finds a
     // half-copied file mid-install.
     "  tmp=$(mktemp \"$dir/.tmp.XXXXXX\")",
+    // The copy can fail with the file half written — the apply running
+    // alongside it prunes the cache this reads from — and this is a directory
+    // the user keeps, with nothing else that would ever sweep it.
+    "  trap 'rm -f \"$tmp\"' EXIT",
     "  cp -f \"$src\" \"$tmp\"",
     "  chmod 644 \"$tmp\"",
     "  mv -f \"$tmp\" \"$out\"",
@@ -629,9 +672,9 @@ Item {
     if (!piece || !piece.url || installProc.running) return
     status = "Adding " + piece.name + " to the theme…"
     lastError = ""
-    installProc.command = ["bash", "-c", installScript, "boringday", binDir, piece.url,
+    installProc.command = scriptCommand(300, installScript, [binDir, piece.url,
       wallpaperDir + "/" + piece.id + Model.extensionFor(piece.url),
-      Model.downloadName(piece), themeBackgroundsDir, backgroundLink, themeNamePath]
+      Model.downloadName(piece), themeBackgroundsDir, backgroundLink, themeNamePath])
     installProc.running = true
   }
 
@@ -669,8 +712,13 @@ Item {
   //
   // The interval is wall-clock, not uptime: the last switch is persisted, so a
   // shell restart resumes the schedule where it left off instead of granting a
-  // fresh hour. The catch-up runs a beat after startup so a login does not
-  // race the network coming up.
+  // fresh hour. That only holds if the wait is derived from the timestamp
+  // every time it is set, which is why there is one timer here and it is a
+  // one-shot, re-armed from the clock rather than left repeating. A repeating
+  // timer measures from whenever it happened to start: a restart 55 minutes
+  // into an hour waited another full hour, and a manual switch left the next
+  // rotation wherever the old cycle had already put it — sometimes seconds
+  // away.
 
   function dueInMs() {
     var period = intervalSeconds * 1000
@@ -678,53 +726,104 @@ Item {
     return Math.max(0, lastSwitchAt + period - Date.now())
   }
 
-  Timer {
-    id: rotationTimer
-    running: root.autoRotate && root.stateLoaded
-    repeat: true
-    interval: Math.max(60000, root.intervalSeconds * 1000)
-    onTriggered: root.shuffle("auto")
+  // A rotation that is already due still waits out this much, so a login does
+  // not race the network coming up.
+  readonly property int rotationGrace: 8000
+
+  function armRotation() {
+    // Nothing to arm before the state file lands — the timestamp the wait is
+    // measured from is still on disk — and nothing to touch either: this runs
+    // from a property handler that fires while the component is still being
+    // built. adoptState calls it the moment there is a schedule.
+    if (!stateLoaded) return
+    rotationTimer.stop()
+    if (!autoRotate) return
+    rotationTimer.interval = Math.max(rotationGrace, dueInMs())
+    rotationTimer.start()
   }
 
   Timer {
-    id: catchUpTimer
-    interval: 8000
+    id: rotationTimer
     repeat: false
     onTriggered: {
-      if (root.autoRotate && root.dueInMs() === 0) root.shuffle("auto")
+      // Re-armed a whole period out before the shuffle rather than after it. A
+      // fetch that fails records no switch, so re-deriving from the timestamp
+      // afterwards would put the next attempt a grace beat away and spin
+      // against a dead network for as long as it stayed dead. A shuffle that
+      // does land arms it again off its own timestamp, which is this same
+      // moment.
+      interval = Math.max(root.rotationGrace, root.intervalSeconds * 1000)
+      start()
+      root.shuffle("auto")
     }
   }
 
-  onAutoRotateChanged: if (autoRotate && stateLoaded) catchUpTimer.restart()
+  onAutoRotateChanged: armRotation()
+  onIntervalSecondsChanged: armRotation()
 
   // ------------------------------------------------------------ persistence
   //
   // The directories this plugin owns are made once at startup, and the state
-  // file is measured in the same step. FileView reads whatever it is pointed
-  // at, however large, so the ceiling has to be applied before it is pointed
-  // at anything: an oversized file is deleted — it is a cache, and the next
-  // switch rewrites it — and anything that is not a plain file is refused.
+  // file is read in the same step, by the only thing that ever opens it. A
+  // name can be swapped between the moment it is looked at and the moment it
+  // is opened, so nothing here rests on the name: the file is opened once, and
+  // it is that descriptor — not the path it was reached by — that is checked
+  // for being a plain file and then read from. Nothing is handed back to Qt as
+  // a path for it to open a second time, so there is no second open to race.
+  //
+  // The read is one byte wider than the ceiling and parseState refuses
+  // anything that long, so an oversized file leaves the state empty and the
+  // next switch writes over it. Nothing is deleted for being the wrong shape:
+  // a rename replaces whatever is at the name anyway, and refusing to read is
+  // the whole of what refusing has to mean.
 
   property bool stateReady: false
+  property string stateText: ""
 
   readonly property string startupScript: [
     "set -euo pipefail",
     "mkdir -p \"$1\" \"$2\" \"$3\"",
     "state=$4",
-    "if [ -h \"$state\" ]; then rm -f \"$state\"; fi",
-    "if [ -f \"$state\" ] && [ \"$(wc -c < \"$state\")\" -gt " + Model.MAX_STATE_CHARS + " ]; then",
-    "  rm -f \"$state\"",
-    "fi",
-    "if [ -e \"$state\" ] && [ ! -f \"$state\" ]; then exit 3; fi"
+    "limit=$5",
+    // First run. The directories exist now and the first switch writes the
+    // file: nothing to read is not a refusal.
+    "[ -e \"$state\" ] || exit 0",
+    // Decides nothing on its own — the descriptor below is what a refusal
+    // rests on. It only spares the ordinary case, something else parked at
+    // the name, from being opened at all.
+    "if [ -L \"$state\" ] || [ ! -f \"$state\" ]; then exit 3; fi",
+    "read_state() {",
+    // bash reads this as fstat on the descriptor rather than a walk back down
+    // the path, which is the point: a pipe or a device swapped in after the
+    // check above is still a pipe or a device here, whatever the name says by
+    // now, and is refused before a byte is read.
+    "  [ -f /dev/fd/3 ] || return 1",
+    "  head -c \"$limit\" <&3",
+    "}",
+    "read_state 3< \"$state\" || exit 3"
   ].join("\n")
 
   Process {
     id: startupProc
-    command: ["bash", "-c", root.startupScript, "boringday",
-      root.stateDir, root.wallpaperDir, root.thumbDir, root.statePath]
+    // The bound matters more here than anywhere else: the open inside this
+    // script is the one thing the descriptor check cannot cover, because
+    // opening a pipe waits for a writer that may never come and that wait
+    // happens before there is a descriptor to check. Short, because nothing
+    // here should take even a second.
+    command: root.scriptCommand(10, root.startupScript,
+      [root.stateDir, root.wallpaperDir, root.thumbDir, root.statePath,
+        String(Model.MAX_STATE_CHARS + 1)])
+    stdout: StdioCollector {
+      waitForEnd: true
+      // As with every collector here, the ceiling is the producer's: head is
+      // what keeps this one from being handed the size of the disk.
+      onStreamFinished: root.stateText = text
+    }
     onExited: function (exitCode) {
       if (exitCode === 0) {
         root.stateReady = true
+        root.adoptState(root.stateText)
+        root.stateText = ""
         return
       }
       // Nothing readable on disk and nowhere to write one. The service still
@@ -737,36 +836,81 @@ Item {
     }
   }
 
-  FileView {
-    id: stateFile
-    path: root.stateReady ? root.statePath : ""
-    watchChanges: false
-    atomicWrites: true
-    printErrors: false
-    onLoaded: root.adoptState(text())
-    // First run: no file yet. Without this the service would never reach
-    // stateLoaded, and rotation would never start. Guarded on stateReady so
-    // the empty path this starts with does not count as a failed read.
-    onLoadFailed: if (root.stateReady) root.adoptState("")
-  }
-
+  // The read is not instant and nothing waits for it: a keybinding fired at
+  // login, or a panel opened straight away, can put a piece on the wall before
+  // the file lands. What is on the wall now outranks what was on it last
+  // session, so in that case the file is read for its recents alone — and the
+  // switch that beat it, which persist() could not write while stateReady was
+  // still false, is written now.
   function adoptState(text) {
     var state = Model.parseState(text)
-    lastSwitchAt = state.lastSwitchAt
-    recentIds = state.recentIds
-    current = state.current
+    var switched = current !== null
+    if (switched) {
+      recentIds = Model.pushRecent(state.recentIds, current.id, 5)
+    } else {
+      lastSwitchAt = state.lastSwitchAt
+      recentIds = state.recentIds
+      current = state.current
+    }
     stateLoaded = true
     ensureCurrentListed()
-    if (autoRotate) catchUpTimer.restart()
+    armRotation()
+    if (switched) persist()
   }
+
+  // Written aside and renamed, like every other file this plugin lays down.
+  // The rename is also what makes the write safe on its own terms: it replaces
+  // whatever is sitting at the name — a symlink aimed elsewhere, a pipe,
+  // yesterday's file — instead of writing through it, so the writer needs no
+  // guard of its own and no reader ever sees half a state file.
+  readonly property string writeScript: [
+    "set -euo pipefail",
+    "state=$1",
+    "dir=$(dirname \"$state\")",
+    "mkdir -p \"$dir\"",
+    "tmp=$(mktemp \"$dir/.state.XXXXXX\")",
+    "trap 'rm -f \"$tmp\"' EXIT",
+    "printf '%s' \"$2\" > \"$tmp\"",
+    "mv -f -- \"$tmp\" \"$state\""
+  ].join("\n")
+
+  // One write at a time, and only the newest of whatever arrived meanwhile:
+  // the file is a snapshot, so an intermediate one is nothing to catch up on.
+  property string queuedState: ""
 
   function persist() {
     if (!stateReady) return
-    stateFile.setText(Model.stateJson({
+    var json = Model.stateJson({
       lastSwitchAt: lastSwitchAt,
       recentIds: recentIds,
       current: current
-    }))
+    })
+    if (writeProc.running) {
+      queuedState = json
+      return
+    }
+    writeState(json)
+  }
+
+  function writeState(json) {
+    writeProc.command = scriptCommand(30, writeScript, [statePath, json])
+    writeProc.running = true
+  }
+
+  Process {
+    id: writeProc
+    onExited: function (exitCode) {
+      // Cleared by a good write as much as set by a bad one. A startup with
+      // nowhere to write is true for the session; a single failed write is
+      // not, and the next switch tries again.
+      root.stateError = exitCode === 0 ? ""
+        : "Could not save the state file — this session is not remembered"
+      if (root.queuedState) {
+        var next = root.queuedState
+        root.queuedState = ""
+        root.writeState(next)
+      }
+    }
   }
 
   Component.onCompleted: {

@@ -85,7 +85,10 @@ Panel {
 
   readonly property var tags: selected ? Model.tags(selected) : []
 
-  readonly property int pieceSlots: 3
+  // The service's limit, not a number of its own: the reserve below has to be
+  // the length of the list it is reserving for, and two constants that must
+  // agree are one constant too many.
+  readonly property int pieceSlots: service && service.pieceLimit > 0 ? service.pieceLimit : 3
   readonly property real listGap: Style.space(4)
   readonly property real pieceRowHeight: Style.space(30) + Style.spacing.labelGap * 2
   // The piece list holds all three slots from the first frame so the first
@@ -294,6 +297,16 @@ Panel {
     if (service) service.setIntervalSeconds(seconds)
   }
 
+  // The letters the panel answers to, as a table rather than a ladder of
+  // else-ifs — the same letters the action tooltips name in their own text,
+  // written here beside the functions they call.
+  readonly property var keyActions: ({
+    "s": root.shuffle, "d": root.download, "t": root.installToTheme,
+    "o": root.openArtPage, "r": root.refresh, "a": root.toggleAuto,
+    "i": root.cycleInterval, "e": root.toggleDescription,
+    "\r": root.setSelected, "\n": root.setSelected
+  })
+
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
@@ -316,13 +329,14 @@ Panel {
   }
 
   function selectPiece(piece) {
-    if (!piece) return
+    if (!piece) return false
     for (var i = 0; i < pieces.length; i++) {
       if (pieces[i].id === piece.id) {
         selectedIndex = i
-        return
+        return true
       }
     }
+    return false
   }
 
   // A fresh fetch can shrink the list under a cursor that was parked at the end.
@@ -334,10 +348,14 @@ Panel {
     // Open the panel after a restart and it describes the wallpaper on screen,
     // not today's piece by default. Once only: after this the selection is the
     // user's to move.
-    if (!landedOnCurrent && pieces.length > 0) {
-      landedOnCurrent = true
-      if (service && service.current) selectPiece(service.current)
-    }
+    //
+    // Spent when it lands, not when it is first tried. The fetch publishes its
+    // list before the service puts the restored piece back into it, and the
+    // state file may not even have been read yet, so the first change here can
+    // arrive with nothing to land on — and did, which is how a restart came
+    // back describing today's piece rather than the one on the wall.
+    if (!landedOnCurrent && pieces.length > 0 && service && service.stateLoaded)
+      landedOnCurrent = !service.current || selectPiece(service.current)
   }
 
   IpcHandler {
@@ -395,16 +413,8 @@ Panel {
       onCloseRequested: root.close()
       onTabRequested: function (direction) { root.switchPanel(direction) }
       onTextKey: function (t) {
-        var key = String(t).toLowerCase()
-        if (key === "s") root.shuffle()
-        else if (key === "d") root.download()
-        else if (key === "t") root.installToTheme()
-        else if (key === "o") root.openArtPage()
-        else if (key === "r") root.refresh()
-        else if (key === "a") root.toggleAuto()
-        else if (key === "i") root.cycleInterval()
-        else if (key === "e") root.toggleDescription()
-        else if (key === "\r" || key === "\n") root.setSelected()
+        var action = root.keyActions[String(t).toLowerCase()]
+        if (action) action()
       }
 
       Flickable {
