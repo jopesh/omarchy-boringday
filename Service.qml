@@ -700,31 +700,67 @@ Item {
   // ------------------------------------------------------------ persistence
   //
   // The directories this plugin owns are made once at startup, and the state
-  // file is measured in the same step. FileView reads whatever it is pointed
-  // at, however large, so the ceiling has to be applied before it is pointed
-  // at anything: an oversized file is deleted — it is a cache, and the next
-  // switch rewrites it — and anything that is not a plain file is refused.
+  // file is read in the same step, by the only thing that ever opens it. A
+  // name can be swapped between the moment it is looked at and the moment it
+  // is opened, so nothing here rests on the name: the file is opened once, and
+  // it is that descriptor — not the path it was reached by — that is checked
+  // for being a plain file and then read from. Nothing is handed back to Qt as
+  // a path for it to open a second time, so there is no second open to race.
+  //
+  // The read is one byte wider than the ceiling and parseState refuses
+  // anything that long, so an oversized file leaves the state empty and the
+  // next switch writes over it. Nothing is deleted for being the wrong shape:
+  // a rename replaces whatever is at the name anyway, and refusing to read is
+  // the whole of what refusing has to mean.
 
   property bool stateReady: false
+  property string stateText: ""
 
   readonly property string startupScript: [
     "set -euo pipefail",
     "mkdir -p \"$1\" \"$2\" \"$3\"",
     "state=$4",
-    "if [ -h \"$state\" ]; then rm -f \"$state\"; fi",
-    "if [ -f \"$state\" ] && [ \"$(wc -c < \"$state\")\" -gt " + Model.MAX_STATE_CHARS + " ]; then",
-    "  rm -f \"$state\"",
-    "fi",
-    "if [ -e \"$state\" ] && [ ! -f \"$state\" ]; then exit 3; fi"
+    "limit=$5",
+    // First run. The directories exist now and the first switch writes the
+    // file: nothing to read is not a refusal.
+    "[ -e \"$state\" ] || exit 0",
+    // Decides nothing on its own — the descriptor below is what a refusal
+    // rests on. It only spares the ordinary case, something else parked at
+    // the name, from being opened at all.
+    "if [ -L \"$state\" ] || [ ! -f \"$state\" ]; then exit 3; fi",
+    "read_state() {",
+    // bash reads this as fstat on the descriptor rather than a walk back down
+    // the path, which is the point: a pipe or a device swapped in after the
+    // check above is still a pipe or a device here, whatever the name says by
+    // now, and is refused before a byte is read.
+    "  [ -f /dev/fd/3 ] || return 1",
+    "  head -c \"$limit\" <&3",
+    "}",
+    "read_state 3< \"$state\" || exit 3"
   ].join("\n")
 
   Process {
     id: startupProc
-    command: ["bash", "-c", root.startupScript, "boringday",
-      root.stateDir, root.wallpaperDir, root.thumbDir, root.statePath]
+    // A wall clock around the script, because the open inside it is the one
+    // thing the descriptor check cannot cover: opening a pipe waits for a
+    // writer that may never come, and that wait happens before there is a
+    // descriptor to check. Bounded from outside the shell that performs it,
+    // and killed rather than asked, since a shell stuck in open() is in no
+    // position to answer.
+    command: ["timeout", "-k", "5", "10", "bash", "-c", root.startupScript, "boringday",
+      root.stateDir, root.wallpaperDir, root.thumbDir, root.statePath,
+      String(Model.MAX_STATE_CHARS + 1)]
+    stdout: StdioCollector {
+      waitForEnd: true
+      // As with every collector here, the ceiling is the producer's: head is
+      // what keeps this one from being handed the size of the disk.
+      onStreamFinished: root.stateText = text
+    }
     onExited: function (exitCode) {
       if (exitCode === 0) {
         root.stateReady = true
+        root.adoptState(root.stateText)
+        root.stateText = ""
         return
       }
       // Nothing readable on disk and nowhere to write one. The service still
@@ -737,19 +773,6 @@ Item {
     }
   }
 
-  FileView {
-    id: stateFile
-    path: root.stateReady ? root.statePath : ""
-    watchChanges: false
-    atomicWrites: true
-    printErrors: false
-    onLoaded: root.adoptState(text())
-    // First run: no file yet. Without this the service would never reach
-    // stateLoaded, and rotation would never start. Guarded on stateReady so
-    // the empty path this starts with does not count as a failed read.
-    onLoadFailed: if (root.stateReady) root.adoptState("")
-  }
-
   function adoptState(text) {
     var state = Model.parseState(text)
     lastSwitchAt = state.lastSwitchAt
@@ -760,13 +783,59 @@ Item {
     if (autoRotate) catchUpTimer.restart()
   }
 
+  // Written aside and renamed, like every other file this plugin lays down.
+  // The rename is also what makes the write safe on its own terms: it replaces
+  // whatever is sitting at the name — a symlink aimed elsewhere, a pipe,
+  // yesterday's file — instead of writing through it, so the writer needs no
+  // guard of its own and no reader ever sees half a state file.
+  readonly property string writeScript: [
+    "set -euo pipefail",
+    "state=$1",
+    "dir=$(dirname \"$state\")",
+    "mkdir -p \"$dir\"",
+    "tmp=$(mktemp \"$dir/.state.XXXXXX\")",
+    "trap 'rm -f \"$tmp\"' EXIT",
+    "printf '%s' \"$2\" > \"$tmp\"",
+    "mv -f -- \"$tmp\" \"$state\""
+  ].join("\n")
+
+  // One write at a time, and only the newest of whatever arrived meanwhile:
+  // the file is a snapshot, so an intermediate one is nothing to catch up on.
+  property string queuedState: ""
+
   function persist() {
     if (!stateReady) return
-    stateFile.setText(Model.stateJson({
+    var json = Model.stateJson({
       lastSwitchAt: lastSwitchAt,
       recentIds: recentIds,
       current: current
-    }))
+    })
+    if (writeProc.running) {
+      queuedState = json
+      return
+    }
+    writeState(json)
+  }
+
+  function writeState(json) {
+    writeProc.command = ["bash", "-c", writeScript, "boringday", statePath, json]
+    writeProc.running = true
+  }
+
+  Process {
+    id: writeProc
+    onExited: function (exitCode) {
+      // Cleared by a good write as much as set by a bad one. A startup with
+      // nowhere to write is true for the session; a single failed write is
+      // not, and the next switch tries again.
+      root.stateError = exitCode === 0 ? ""
+        : "Could not save the state file — this session is not remembered"
+      if (root.queuedState) {
+        var next = root.queuedState
+        root.queuedState = ""
+        root.writeState(next)
+      }
+    }
   }
 
   Component.onCompleted: {
