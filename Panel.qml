@@ -85,7 +85,10 @@ Panel {
 
   readonly property var tags: selected ? Model.tags(selected) : []
 
-  readonly property int pieceSlots: 3
+  // The service's limit, not a number of its own: the reserve below has to be
+  // the length of the list it is reserving for, and two constants that must
+  // agree are one constant too many.
+  readonly property int pieceSlots: service && service.pieceLimit > 0 ? service.pieceLimit : 3
   readonly property real listGap: Style.space(4)
   readonly property real pieceRowHeight: Style.space(30) + Style.spacing.labelGap * 2
   // The piece list holds all three slots from the first frame so the first
@@ -316,13 +319,14 @@ Panel {
   }
 
   function selectPiece(piece) {
-    if (!piece) return
+    if (!piece) return false
     for (var i = 0; i < pieces.length; i++) {
       if (pieces[i].id === piece.id) {
         selectedIndex = i
-        return
+        return true
       }
     }
+    return false
   }
 
   // A fresh fetch can shrink the list under a cursor that was parked at the end.
@@ -334,10 +338,14 @@ Panel {
     // Open the panel after a restart and it describes the wallpaper on screen,
     // not today's piece by default. Once only: after this the selection is the
     // user's to move.
-    if (!landedOnCurrent && pieces.length > 0) {
-      landedOnCurrent = true
-      if (service && service.current) selectPiece(service.current)
-    }
+    //
+    // Spent when it lands, not when it is first tried. The fetch publishes its
+    // list before the service puts the restored piece back into it, and the
+    // state file may not even have been read yet, so the first change here can
+    // arrive with nothing to land on — and did, which is how a restart came
+    // back describing today's piece rather than the one on the wall.
+    if (!landedOnCurrent && pieces.length > 0 && service && service.stateLoaded)
+      landedOnCurrent = !service.current || selectPiece(service.current)
   }
 
   IpcHandler {

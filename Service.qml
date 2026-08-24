@@ -199,7 +199,12 @@ Item {
       lastError = "anotherboring.day returned no pieces"
       return
     }
-    pieces = parsed
+    // parseTriple will hand back as many records as the response carries, up
+    // to its own ceiling. The list has one length everywhere else — the panel
+    // reserves exactly this many rows and rememberPiece has always trimmed to
+    // it — so a longer response is cut here rather than painting over the rest
+    // of the popup.
+    pieces = parsed.slice(0, pieceLimit)
     lastError = ""
     fetchThumbnails()
     // Refreshing replaces the list wholesale, which would otherwise drop the
@@ -217,6 +222,20 @@ Item {
       root.loading = false
       if (exitCode !== 0) root.lastError = root.fetchError(exitCode)
     }
+  }
+
+  // ----------------------------------------------------------- script bound
+  //
+  // Every script below either reaches the network or hands off to another
+  // program, and a Process that never exits leaves the flag that guards it
+  // raised for the rest of the session: one omarchy-theme-bg-set that never
+  // returns and no later shuffle, rotation or Set is so much as attempted. So
+  // none of them is started unwrapped. The bound is wall clock and sits well
+  // past the sum of the curl timeouts inside the script — it is there to catch
+  // a hang, not to cut work short — and a script killed at it exits 124, which
+  // every handler below already reads as the failure it is.
+  function bounded(seconds, args) {
+    return ["timeout", "-k", "5", String(seconds)].concat(args)
   }
 
   // ----------------------------------------------------------- image tools
@@ -329,13 +348,18 @@ Item {
     for (var i = 0; i < pieces.length; i++)
       lines.push([pieces[i].id, pieces[i].thumbnailUrl]
         .concat(thumbLimitsFor(pieces[i])).join("\t"))
-    thumbProc.command = ["bash", "-c", thumbScript, "boringday", thumbDir, lines.join("\n")]
+    thumbProc.command = bounded(300, ["bash", "-c", thumbScript, "boringday", thumbDir, lines.join("\n")])
     thumbProc.running = true
   }
 
+  // Rebuilt from the list rather than added to. Carrying old keys forward
+  // grew the map by a piece per rotation for the life of the session — and
+  // copied the whole of it again on every publish — to hold paths nothing
+  // reads: the panel only ever asks about a piece that is in the list, and a
+  // piece that comes back into it is republished by the fetch that precedes
+  // every publish.
   function publishThumbnails() {
     var next = ({})
-    for (var key in thumbs) next[key] = thumbs[key]
     for (var i = 0; i < pieces.length; i++)
       next[pieces[i].id] = thumbDir + "/" + pieces[i].id + ".jpg"
     thumbs = next
@@ -360,12 +384,14 @@ Item {
 
   readonly property int shuffleAttemptLimit: 3
   property int shuffleAttempts: 0
+  property bool retryPending: false
   property string shuffleReason: "shuffle"
 
   function shuffle(reason) {
     if (randomProc.running || applying) return
     shuffleReason = reason || "shuffle"
     shuffleAttempts = 0
+    retryPending = false
     status = "Finding a piece…"
     lastError = ""
     requestRandom()
@@ -389,8 +415,12 @@ Item {
       status = ""
       return
     }
+    // Asked again from onExited rather than from here. This runs on the
+    // stream, with the process still on its way out, and a command written to
+    // a Process that is still running is dropped — which lost the retry and
+    // left the status line saying "Finding a piece…" for good.
     if (recentIds.indexOf(piece.id) !== -1 && shuffleAttempts < shuffleAttemptLimit) {
-      Qt.callLater(requestRandom)
+      retryPending = true
       return
     }
     rememberPiece(piece)
@@ -405,8 +435,14 @@ Item {
     }
     onExited: function (exitCode) {
       if (exitCode !== 0) {
+        root.retryPending = false
         root.lastError = root.fetchError(exitCode)
         root.status = ""
+        return
+      }
+      if (root.retryPending) {
+        root.retryPending = false
+        Qt.callLater(root.requestRandom)
       }
     }
   }
@@ -459,8 +495,8 @@ Item {
     pendingPiece = piece
     pendingReason = reason || "set"
     status = "Setting " + piece.name + "…"
-    applyProc.command = ["bash", "-c", applyScript, "boringday", binDir, piece.url,
-      wallpaperDir + "/" + piece.id + Model.extensionFor(piece.url)]
+    applyProc.command = bounded(300, ["bash", "-c", applyScript, "boringday", binDir, piece.url,
+      wallpaperDir + "/" + piece.id + Model.extensionFor(piece.url)])
     applyProc.running = true
   }
 
@@ -475,6 +511,7 @@ Item {
     lastSwitchAt = now
     recentIds = Model.pushRecent(recentIds, piece.id, 5)
     persist()
+    armRotation()
     applied(piece)
     // Notify only for changes the user is not already looking at: a scheduled
     // rotation, or a keybinding that fired with no panel open. A click in the
@@ -539,7 +576,7 @@ Item {
     if (!piece || !piece.url || downloadProc.running) return
     status = "Saving " + piece.name + "…"
     lastError = ""
-    downloadProc.command = ["bash", "-c", downloadScript, "boringday", piece.url, Model.downloadName(piece)]
+    downloadProc.command = bounded(180, ["bash", "-c", downloadScript, "boringday", piece.url, Model.downloadName(piece)])
     downloadProc.running = true
   }
 
@@ -613,6 +650,10 @@ Item {
     // Written aside and renamed, so the theme's rotation never finds a
     // half-copied file mid-install.
     "  tmp=$(mktemp \"$dir/.tmp.XXXXXX\")",
+    // The copy can fail with the file half written — the apply running
+    // alongside it prunes the cache this reads from — and this is a directory
+    // the user keeps, with nothing else that would ever sweep it.
+    "  trap 'rm -f \"$tmp\"' EXIT",
     "  cp -f \"$src\" \"$tmp\"",
     "  chmod 644 \"$tmp\"",
     "  mv -f \"$tmp\" \"$out\"",
@@ -629,9 +670,9 @@ Item {
     if (!piece || !piece.url || installProc.running) return
     status = "Adding " + piece.name + " to the theme…"
     lastError = ""
-    installProc.command = ["bash", "-c", installScript, "boringday", binDir, piece.url,
+    installProc.command = bounded(300, ["bash", "-c", installScript, "boringday", binDir, piece.url,
       wallpaperDir + "/" + piece.id + Model.extensionFor(piece.url),
-      Model.downloadName(piece), themeBackgroundsDir, backgroundLink, themeNamePath]
+      Model.downloadName(piece), themeBackgroundsDir, backgroundLink, themeNamePath])
     installProc.running = true
   }
 
@@ -669,8 +710,13 @@ Item {
   //
   // The interval is wall-clock, not uptime: the last switch is persisted, so a
   // shell restart resumes the schedule where it left off instead of granting a
-  // fresh hour. The catch-up runs a beat after startup so a login does not
-  // race the network coming up.
+  // fresh hour. That only holds if the wait is derived from the timestamp
+  // every time it is set, which is why there is one timer here and it is a
+  // one-shot, re-armed from the clock rather than left repeating. A repeating
+  // timer measures from whenever it happened to start: a restart 55 minutes
+  // into an hour waited another full hour, and a manual switch left the next
+  // rotation wherever the old cycle had already put it — sometimes seconds
+  // away.
 
   function dueInMs() {
     var period = intervalSeconds * 1000
@@ -678,24 +724,40 @@ Item {
     return Math.max(0, lastSwitchAt + period - Date.now())
   }
 
-  Timer {
-    id: rotationTimer
-    running: root.autoRotate && root.stateLoaded
-    repeat: true
-    interval: Math.max(60000, root.intervalSeconds * 1000)
-    onTriggered: root.shuffle("auto")
+  // A rotation that is already due still waits out this much, so a login does
+  // not race the network coming up.
+  readonly property int rotationGrace: 8000
+
+  function armRotation() {
+    // Nothing to arm before the state file lands — the timestamp the wait is
+    // measured from is still on disk — and nothing to touch either: this runs
+    // from a property handler that fires while the component is still being
+    // built. adoptState calls it the moment there is a schedule.
+    if (!stateLoaded) return
+    rotationTimer.stop()
+    if (!autoRotate) return
+    rotationTimer.interval = Math.max(rotationGrace, dueInMs())
+    rotationTimer.start()
   }
 
   Timer {
-    id: catchUpTimer
-    interval: 8000
+    id: rotationTimer
     repeat: false
     onTriggered: {
-      if (root.autoRotate && root.dueInMs() === 0) root.shuffle("auto")
+      // Re-armed a whole period out before the shuffle rather than after it. A
+      // fetch that fails records no switch, so re-deriving from the timestamp
+      // afterwards would put the next attempt a grace beat away and spin
+      // against a dead network for as long as it stayed dead. A shuffle that
+      // does land arms it again off its own timestamp, which is this same
+      // moment.
+      interval = Math.max(root.rotationGrace, root.intervalSeconds * 1000)
+      start()
+      root.shuffle("auto")
     }
   }
 
-  onAutoRotateChanged: if (autoRotate && stateLoaded) catchUpTimer.restart()
+  onAutoRotateChanged: armRotation()
+  onIntervalSecondsChanged: armRotation()
 
   // ------------------------------------------------------------ persistence
   //
@@ -741,15 +803,14 @@ Item {
 
   Process {
     id: startupProc
-    // A wall clock around the script, because the open inside it is the one
-    // thing the descriptor check cannot cover: opening a pipe waits for a
-    // writer that may never come, and that wait happens before there is a
-    // descriptor to check. Bounded from outside the shell that performs it,
-    // and killed rather than asked, since a shell stuck in open() is in no
-    // position to answer.
-    command: ["timeout", "-k", "5", "10", "bash", "-c", root.startupScript, "boringday",
+    // The bound matters more here than anywhere else: the open inside this
+    // script is the one thing the descriptor check cannot cover, because
+    // opening a pipe waits for a writer that may never come and that wait
+    // happens before there is a descriptor to check. Short, because nothing
+    // here should take even a second.
+    command: root.bounded(10, ["bash", "-c", root.startupScript, "boringday",
       root.stateDir, root.wallpaperDir, root.thumbDir, root.statePath,
-      String(Model.MAX_STATE_CHARS + 1)]
+      String(Model.MAX_STATE_CHARS + 1)])
     stdout: StdioCollector {
       waitForEnd: true
       // As with every collector here, the ceiling is the producer's: head is
@@ -773,14 +834,26 @@ Item {
     }
   }
 
+  // The read is not instant and nothing waits for it: a keybinding fired at
+  // login, or a panel opened straight away, can put a piece on the wall before
+  // the file lands. What is on the wall now outranks what was on it last
+  // session, so in that case the file is read for its recents alone — and the
+  // switch that beat it, which persist() could not write while stateReady was
+  // still false, is written now.
   function adoptState(text) {
     var state = Model.parseState(text)
-    lastSwitchAt = state.lastSwitchAt
-    recentIds = state.recentIds
-    current = state.current
+    var switched = current !== null
+    if (switched) {
+      recentIds = Model.pushRecent(state.recentIds, current.id, 5)
+    } else {
+      lastSwitchAt = state.lastSwitchAt
+      recentIds = state.recentIds
+      current = state.current
+    }
     stateLoaded = true
     ensureCurrentListed()
-    if (autoRotate) catchUpTimer.restart()
+    armRotation()
+    if (switched) persist()
   }
 
   // Written aside and renamed, like every other file this plugin lays down.
@@ -818,7 +891,7 @@ Item {
   }
 
   function writeState(json) {
-    writeProc.command = ["bash", "-c", writeScript, "boringday", statePath, json]
+    writeProc.command = bounded(30, ["bash", "-c", writeScript, "boringday", statePath, json])
     writeProc.running = true
   }
 
