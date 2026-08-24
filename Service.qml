@@ -33,22 +33,19 @@ Item {
   // and rotation must have exactly one owner.
   readonly property var settings: entryFor(shell ? shell.shellConfig : null)
 
+  // The bar's three sections in the order they are drawn, then the plugins
+  // list. One scan over all four: the first entry claiming this plugin's id
+  // wins, wherever it happens to have been written.
   function entryFor(config) {
     if (!config || typeof config !== "object") return ({})
-    var sections = ["left", "center", "right"]
-    var layout = config.bar && config.bar.layout ? config.bar.layout : null
-    for (var s = 0; s < sections.length; s++) {
-      var entries = layout ? layout[sections[s]] : null
-      if (!Array.isArray(entries)) continue
-      for (var i = 0; i < entries.length; i++) {
-        var entry = entries[i]
-        if (entry && typeof entry === "object" && String(entry.id) === pluginId) return entry
-      }
-    }
-    var plugins = Array.isArray(config.plugins) ? config.plugins : []
-    for (var p = 0; p < plugins.length; p++) {
-      var pluginEntry = plugins[p]
-      if (pluginEntry && typeof pluginEntry === "object" && String(pluginEntry.id) === pluginId) return pluginEntry
+    var layout = config.bar && config.bar.layout ? config.bar.layout : ({})
+    var lists = [layout.left, layout.center, layout.right, config.plugins]
+    var entries = []
+    for (var l = 0; l < lists.length; l++)
+      if (Array.isArray(lists[l])) entries = entries.concat(lists[l])
+    for (var i = 0; i < entries.length; i++) {
+      var entry = entries[i]
+      if (entry && typeof entry === "object" && String(entry.id) === pluginId) return entry
     }
     return ({})
   }
@@ -224,18 +221,23 @@ Item {
     }
   }
 
-  // ----------------------------------------------------------- script bound
+  // ------------------------------------------------------------ script calls
   //
-  // Every script below either reaches the network or hands off to another
-  // program, and a Process that never exits leaves the flag that guards it
-  // raised for the rest of the session: one omarchy-theme-bg-set that never
-  // returns and no later shuffle, rotation or Set is so much as attempted. So
-  // none of them is started unwrapped. The bound is wall clock and sits well
-  // past the sum of the curl timeouts inside the script — it is there to catch
-  // a hang, not to cut work short — and a script killed at it exits 124, which
-  // every handler below already reads as the failure it is.
-  function bounded(seconds, args) {
-    return ["timeout", "-k", "5", String(seconds)].concat(args)
+  // Every script below is started through here, so the incantation is written
+  // once: a wall clock, bash, the script, and the name bash reports it by —
+  // "boringday" is $0, not an argument any script reads, which is why the
+  // arguments passed here start at $1.
+  //
+  // The wall clock is the point of it. Each script either reaches the network
+  // or hands off to another program, and a Process that never exits leaves the
+  // flag that guards it raised for the rest of the session: one
+  // omarchy-theme-bg-set that never returns and no later shuffle, rotation or
+  // Set is so much as attempted. The bound sits well past the sum of the curl
+  // timeouts inside the script — it is there to catch a hang, not to cut work
+  // short — and a script killed at it exits 124, which every handler below
+  // already reads as the failure it is.
+  function scriptCommand(seconds, body, args) {
+    return ["timeout", "-k", "5", String(seconds), "bash", "-c", body, "boringday"].concat(args)
   }
 
   // ----------------------------------------------------------- image tools
@@ -296,6 +298,18 @@ Item {
     "    rm -f \"$tmp\"; return 1",
     "  fi",
     "  mv -f \"$tmp\" \"$dest\"",
+    "}",
+    "",
+    "ensure_image() { # url file max_bytes max_edge max_pixels timeout",
+    // Checked even when the file is already in the cache: it is about to
+    // become the desktop background, and the cache directory is writable by
+    // anything running as the user. A file that fails is replaced rather than
+    // deleted — fetch_image only renames a validated file into place, so the
+    // old one survives a failed fetch. Deleting first would leave Omarchy's
+    // current-background symlink pointing at nothing.
+    "  if ! image_ok \"$2\" \"$3\" \"$4\" \"$5\"; then",
+    "    fetch_image \"$1\" \"$2\" \"$3\" \"$4\" \"$5\" \"$6\"",
+    "  fi",
     "}"
   ].join("\n")
 
@@ -348,7 +362,7 @@ Item {
     for (var i = 0; i < pieces.length; i++)
       lines.push([pieces[i].id, pieces[i].thumbnailUrl]
         .concat(thumbLimitsFor(pieces[i])).join("\t"))
-    thumbProc.command = bounded(300, ["bash", "-c", thumbScript, "boringday", thumbDir, lines.join("\n")])
+    thumbProc.command = scriptCommand(300, thumbScript, [thumbDir, lines.join("\n")])
     thumbProc.running = true
   }
 
@@ -467,15 +481,7 @@ Item {
     "out=$3",
     "dir=$(dirname \"$out\")",
     "mkdir -p \"$dir\"",
-    // Checked even when the cache already had it: the file is about to become
-    // the desktop background, and the cache directory is writable by anything
-    // running as the user. A cached file that fails is replaced rather than
-    // deleted — fetch_image only renames a validated file into place, so the
-    // old one survives a failed fetch. Deleting first would leave Omarchy's
-    // current-background symlink pointing at nothing.
-    "if ! image_ok \"$out\" " + imageLimits + "; then",
-    "  fetch_image \"$url\" \"$out\" " + imageLimits + " 120",
-    "fi",
+    "ensure_image \"$url\" \"$out\" " + imageLimits + " 120",
     "touch \"$out\"",
     "omarchy-theme-bg-set \"$out\"",
     "{ ls -1t \"$dir\" 2>/dev/null || true; } | tail -n +21 | while IFS= read -r stale; do",
@@ -495,7 +501,7 @@ Item {
     pendingPiece = piece
     pendingReason = reason || "set"
     status = "Setting " + piece.name + "…"
-    applyProc.command = bounded(300, ["bash", "-c", applyScript, "boringday", binDir, piece.url,
+    applyProc.command = scriptCommand(300, applyScript, [binDir, piece.url,
       wallpaperDir + "/" + piece.id + Model.extensionFor(piece.url)])
     applyProc.running = true
   }
@@ -576,7 +582,7 @@ Item {
     if (!piece || !piece.url || downloadProc.running) return
     status = "Saving " + piece.name + "…"
     lastError = ""
-    downloadProc.command = bounded(180, ["bash", "-c", downloadScript, "boringday", piece.url, Model.downloadName(piece)])
+    downloadProc.command = scriptCommand(180, downloadScript, [piece.url, Model.downloadName(piece)])
     downloadProc.running = true
   }
 
@@ -640,11 +646,7 @@ Item {
     "case ${theme:-} in \"\"|.|..|*/*) exit 4 ;; esac",
     "dir=\"$root/$theme\"",
     "mkdir -p \"$dir\"",
-    // As in applyScript: replaced, not deleted, because the wall may be
-    // resting on this very file.
-    "if ! image_ok \"$src\" " + imageLimits + "; then",
-    "  fetch_image \"$url\" \"$src\" " + imageLimits + " 120",
-    "fi",
+    "ensure_image \"$url\" \"$src\" " + imageLimits + " 120",
     "out=\"$dir/$name\"",
     "if [ ! -s \"$out\" ]; then",
     // Written aside and renamed, so the theme's rotation never finds a
@@ -670,7 +672,7 @@ Item {
     if (!piece || !piece.url || installProc.running) return
     status = "Adding " + piece.name + " to the theme…"
     lastError = ""
-    installProc.command = bounded(300, ["bash", "-c", installScript, "boringday", binDir, piece.url,
+    installProc.command = scriptCommand(300, installScript, [binDir, piece.url,
       wallpaperDir + "/" + piece.id + Model.extensionFor(piece.url),
       Model.downloadName(piece), themeBackgroundsDir, backgroundLink, themeNamePath])
     installProc.running = true
@@ -808,9 +810,9 @@ Item {
     // opening a pipe waits for a writer that may never come and that wait
     // happens before there is a descriptor to check. Short, because nothing
     // here should take even a second.
-    command: root.bounded(10, ["bash", "-c", root.startupScript, "boringday",
-      root.stateDir, root.wallpaperDir, root.thumbDir, root.statePath,
-      String(Model.MAX_STATE_CHARS + 1)])
+    command: root.scriptCommand(10, root.startupScript,
+      [root.stateDir, root.wallpaperDir, root.thumbDir, root.statePath,
+        String(Model.MAX_STATE_CHARS + 1)])
     stdout: StdioCollector {
       waitForEnd: true
       // As with every collector here, the ceiling is the producer's: head is
@@ -891,7 +893,7 @@ Item {
   }
 
   function writeState(json) {
-    writeProc.command = bounded(30, ["bash", "-c", writeScript, "boringday", statePath, json])
+    writeProc.command = scriptCommand(30, writeScript, [statePath, json])
     writeProc.running = true
   }
 

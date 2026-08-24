@@ -297,6 +297,16 @@ Panel {
     if (service) service.setIntervalSeconds(seconds)
   }
 
+  // The letters the panel answers to, as a table rather than a ladder of
+  // else-ifs — the same letters the action tooltips name in their own text,
+  // written here beside the functions they call.
+  readonly property var keyActions: ({
+    "s": root.shuffle, "d": root.download, "t": root.installToTheme,
+    "o": root.openArtPage, "r": root.refresh, "a": root.toggleAuto,
+    "i": root.cycleInterval, "e": root.toggleDescription,
+    "\r": root.setSelected, "\n": root.setSelected
+  })
+
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
@@ -403,16 +413,8 @@ Panel {
       onCloseRequested: root.close()
       onTabRequested: function (direction) { root.switchPanel(direction) }
       onTextKey: function (t) {
-        var key = String(t).toLowerCase()
-        if (key === "s") root.shuffle()
-        else if (key === "d") root.download()
-        else if (key === "t") root.installToTheme()
-        else if (key === "o") root.openArtPage()
-        else if (key === "r") root.refresh()
-        else if (key === "a") root.toggleAuto()
-        else if (key === "i") root.cycleInterval()
-        else if (key === "e") root.toggleDescription()
-        else if (key === "\r" || key === "\n") root.setSelected()
+        var action = root.keyActions[String(t).toLowerCase()]
+        if (action) action()
       }
 
       Flickable {
