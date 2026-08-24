@@ -1,5 +1,7 @@
 # Another Boring Piece — for Omarchy
 
+![Preview Image](preview.png)
+
 Hand-picked fine art from [anotherboring.day](https://anotherboring.day) as your
 Omarchy background. A pill in the bar opens today's piece plus two more, one
 click sets any of them, and an optional schedule keeps the wall moving.
