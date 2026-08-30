@@ -1,0 +1,55 @@
+# Publishes a GitHub release when a v-prefixed tag is pushed.
+#
+#   git tag v1.1.0 && git push origin v1.1.0
+#
+# The notes are the tag's own section of CHANGELOG.md, so the changelog stays
+# the one place a release is written. The version in manifest.json is checked
+# against the tag first: the shell reads that field, and a release whose tag
+# and manifest disagree is worse than no release.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag against manifest.json
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          manifest="$(jq -r '.version' manifest.json)"
+          if [ "$tag" != "$manifest" ]; then
+            echo "::error::tag $GITHUB_REF_NAME says $tag, manifest.json says $manifest"
+            exit 1
+          fi
+
+      - name: Take this version's notes out of the changelog
+        run: |
+          set -euo pipefail
+          awk -v version="${GITHUB_REF_NAME#v}" '
+            $0 ~ "^## \\[" version "\\]" { collecting = 1; next }
+            collecting && /^## / { exit }
+            collecting { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::CHANGELOG.md has no section for $GITHUB_REF_NAME"
+            exit 1
+          fi
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            --verify-tag

@@ -58,6 +58,12 @@ Item {
   readonly property bool autoRotate: setting("autoRotate", false) === true
   readonly property int intervalSeconds: Model.clampInterval(setting("intervalSeconds", 3600))
   readonly property bool notifyOnSwitch: setting("notify", true) === true
+  // Validated here rather than at the point of use: a mode typed into
+  // shell.json by hand is an argument on aether's command line, and an
+  // unrecognised one would fail the generate outright instead of quietly
+  // giving the palette aether picks by default.
+  readonly property string extractMode: Model.extractMode(setting("extractMode", Model.DEFAULT_EXTRACT_MODE))
+  readonly property bool lightMode: setting("lightMode", false) === true
 
   // Persist through the shell so the write lands in shell.json next to every
   // other widget setting instead of in a private file of our own.
@@ -88,6 +94,10 @@ Item {
     setIntervalSeconds(Model.nextInterval(intervalSeconds))
   }
 
+  function cycleIntervalBack() {
+    setIntervalSeconds(Model.prevInterval(intervalSeconds))
+  }
+
   // ---------------------------------------------------------------- state
 
   property var pieces: []
@@ -99,6 +109,7 @@ Item {
   property bool stateLoaded: false
   property bool loading: false
   property bool applying: false
+  property bool generating: false
   property string lastError: ""
   property string status: ""
   // lastError is the transient channel: every fetch clears it and the next
@@ -108,6 +119,11 @@ Item {
   property string stateError: ""
 
   readonly property var today: pieces.length > 0 ? pieces[0] : null
+  // Slot 0 when it is genuinely today's piece, rather than whatever happens to
+  // be first. rememberPiece keeps it there and the list shuffle leaves it
+  // alone, so both ask the question here instead of each spelling it out.
+  readonly property var pinnedToday: pieces.length > 0 && pieces[0].isToday === true
+    ? pieces[0] : null
   readonly property int pieceLimit: 3
   // Phrased for the panel's "every ..." caption and the IPC replies, both of
   // which read it straight after the word "every".
@@ -116,6 +132,7 @@ Item {
   signal applied(var piece)
   signal downloaded(string path)
   signal installed(string theme)
+  signal themed(string mode)
 
   // A shuffle and a scheduled rotation both come from the random endpoint, so
   // the piece they land on was never part of today's triple and the panel had
@@ -128,7 +145,7 @@ Item {
   function rememberPiece(piece) {
     if (!piece || !piece.id) return
     var next = []
-    var todayPiece = pieces.length > 0 && pieces[0].isToday === true ? pieces[0] : null
+    var todayPiece = pinnedToday
     if (todayPiece && todayPiece.id !== piece.id) next.push(todayPiece)
     next.push(piece)
     for (var i = 0; i < pieces.length && next.length < pieceLimit; i++) {
@@ -461,6 +478,125 @@ Item {
     }
   }
 
+  // ------------------------------------------------------------ list refill
+  //
+  // The other shuffle. That one picks a piece and puts it on the wall; this
+  // one refills the list and touches nothing, because the list is a selector —
+  // putting two pieces the user has not been offered in front of them is the
+  // whole of what it is for.
+  //
+  // Today's piece is not re-rolled. It is the one row in the panel that is not
+  // random, there is no endpoint that would hand back a different one, and the
+  // badge and the header both say so. So slot 0 stays and the rows behind it
+  // are refilled one call at a time — the triple endpoint is seeded per day
+  // and answers with the same two companions however often it is asked, which
+  // is why this cannot simply be a second refresh.
+
+  property bool shufflingList: false
+  property var listCollected: []
+  property int listAttempts: 0
+  // Bounded because the catalogue is finite and every attempt is a round trip:
+  // a run that keeps drawing pieces it already has stops rather than spinning.
+  readonly property int listAttemptLimit: pieceLimit * 3
+
+  function listWanted() {
+    return Math.max(1, pieceLimit - (pinnedToday ? 1 : 0))
+  }
+
+  function shuffleList() {
+    // Behind a refresh as well as behind itself: both replace the list
+    // wholesale, and the one that landed second would silently undo the other.
+    if (shufflingList || loading) return
+    shufflingList = true
+    listCollected = []
+    listAttempts = 0
+    lastError = ""
+    status = "Finding new pieces…"
+    requestListPiece()
+  }
+
+  function requestListPiece() {
+    listAttempts += 1
+    listProc.command = jsonFetch(Model.API_RANDOM)
+    listProc.running = true
+  }
+
+  function adoptListPiece(text) {
+    var piece = null
+    try {
+      piece = Model.parseOne(text)
+    } catch (e) {
+      piece = null
+    }
+    // A bad response is not fatal here the way it is for a shuffle that was
+    // going to set something: there are attempts left, and the run reports on
+    // what it managed to collect. Retried from onExited, as ever.
+    if (!piece) return
+    // A duplicate is wrong rather than merely unwanted — the same piece twice
+    // in three rows is never right — so today's piece and anything already in
+    // this batch are refused outright. Recently-seen is deliberately not
+    // consulted: the single-piece shuffle avoids it because it is about to put
+    // the piece on the wall, and re-setting what is already there is a visible
+    // no-op. Nothing is set here, so a familiar piece among the choices is
+    // just a choice.
+    if (pinnedToday && piece.id === pinnedToday.id) return
+    for (var i = 0; i < listCollected.length; i++)
+      if (listCollected[i].id === piece.id) return
+    var next = listCollected.slice()
+    next.push(piece)
+    listCollected = next
+  }
+
+  function publishShuffledList() {
+    shufflingList = false
+    status = ""
+    if (listCollected.length === 0) {
+      listCollected = []
+      lastError = "anotherboring.day had nothing new to show"
+      return
+    }
+    var next = []
+    if (pinnedToday) next.push(pinnedToday)
+    for (var i = 0; i < listCollected.length && next.length < pieceLimit; i++)
+      next.push(listCollected[i])
+    listCollected = []
+    pieces = next
+    fetchThumbnails()
+    // No ensureCurrentListed here, and that is the difference from a refresh.
+    // A refresh replaces the list with a set the user did not choose, so the
+    // wallpaper is put back into it rather than dropped; a refill is the user
+    // asking for something different, and spending one of the two slots on the
+    // piece already on the wall would leave a shuffle offering exactly one new
+    // thing. It comes back on the next refresh.
+  }
+
+  Process {
+    id: listProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.adoptListPiece(text)
+    }
+    onExited: function (exitCode) {
+      if (exitCode !== 0) {
+        root.shufflingList = false
+        root.listCollected = []
+        root.status = ""
+        root.lastError = root.fetchError(exitCode)
+        return
+      }
+      // Asked again from here rather than from the stream handler, for the
+      // reason the single-piece shuffle is: a command written to a Process
+      // that is still on its way out is dropped, and the run would stall with
+      // the status line still saying it was looking.
+      if (root.listCollected.length < root.listWanted()
+          && root.listAttempts < root.listAttemptLimit) {
+        Qt.callLater(root.requestListPiece)
+        return
+      }
+      root.publishShuffledList()
+    }
+  }
+
   // ------------------------------------------------------------------ apply
   //
   // Download once into the cache, then hand the path to omarchy-theme-bg-set,
@@ -491,7 +627,12 @@ Item {
 
   function apply(piece, reason) {
     if (!piece || !piece.url) return
-    if (applying) {
+    // Behind a generate for the same reason it queues behind another apply:
+    // aether owns the background symlink while it is applying a theme, and a
+    // Set landing in the middle of that has the two of them moving it at
+    // once. The generate drains this queue when it exits, so the piece the
+    // user picked still lands — a moment later, on top of the theme.
+    if (applying || generating) {
       queuedPiece = piece
       queuedReason = reason || "set"
       return
@@ -699,6 +840,105 @@ Item {
     }
   }
 
+  // ------------------------------------------------------ generate a theme
+  //
+  // The piece stops being only a background and becomes the palette. Aether
+  // pulls sixteen colours out of the image and retints the desktop from them
+  // — Hyprland, waybar, mako, btop, the terminals, the editors — and sets the
+  // image itself as the wallpaper along the way, because it owns Omarchy's
+  // theme directory and the background symlink for as long as it is applying.
+  //
+  // One `aether --generate` and nothing after it. Aether keeps a single theme
+  // of its own and rewrites it on every generate, so this is a switch rather
+  // than a collection: generating from another piece replaces what this one
+  // wrote, and the theme that was current before it is still sitting in the
+  // theme switcher untouched. `t` is still the way to keep a piece.
+
+  property bool aetherReady: false
+
+  Process {
+    id: aetherProbe
+    // Asked once, at startup, so the panel can draw the action disabled
+    // rather than leaving the CLI's absence to be discovered by clicking it.
+    // Nothing here reaches the network or waits on anything, but it is still
+    // started through scriptCommand for the reason every other script is: a
+    // Process that never exits leaves a flag up for the rest of the session.
+    command: root.scriptCommand(10, "command -v aether >/dev/null 2>&1", [])
+    onExited: function (exitCode) { root.aetherReady = exitCode === 0 }
+  }
+
+  readonly property string generateScript: [
+    "set -euo pipefail",
+    imageTools,
+    "export PATH=\"$1:$PATH\"",
+    "url=$2",
+    "out=$3",
+    "mode=$4",
+    "light=$5",
+    // Probed again rather than taken from startup: aether can have been
+    // removed since, and this is the check the call actually rests on.
+    "command -v aether >/dev/null 2>&1 || exit 5",
+    // The panel has a thumbnail; aether reads the piece itself, so the
+    // full-size image is fetched and checked exactly as a Set fetches it.
+    "ensure_image \"$url\" \"$out\" " + imageLimits + " 120",
+    // Newest in the cache, so the twenty-file prune the next Set runs cannot
+    // delete the file aether took its wallpaper from.
+    "touch \"$out\"",
+    // Built as an array so the optional flag is a separate argument rather
+    // than a word split out of a string.
+    "args=(--generate \"$out\" --extract-mode \"$mode\")",
+    "if [ \"$light\" = \"1\" ]; then args+=(--light-mode); fi",
+    "aether \"${args[@]}\""
+  ].join("\n")
+
+  property var generatingPiece: null
+  property string generatingReason: "theme"
+
+  function generateTheme(piece, reason) {
+    if (!piece || !piece.url || generating || applying) return
+    generating = true
+    lastError = ""
+    generatingPiece = piece
+    generatingReason = reason || "theme"
+    status = "Building a theme from " + piece.name + "…"
+    generateProc.command = scriptCommand(300, generateScript, [binDir, piece.url,
+      wallpaperDir + "/" + piece.id + Model.extensionFor(piece.url),
+      extractMode, lightMode ? "1" : "0"])
+    generateProc.running = true
+  }
+
+  Process {
+    id: generateProc
+    onExited: function (exitCode) {
+      root.generating = false
+      var piece = root.generatingPiece
+      root.generatingPiece = null
+      if (exitCode === 0 && piece) {
+        root.status = "Theme built from " + piece.name
+        // Aether set the wallpaper as part of applying, so this piece is what
+        // is on the wall — recorded the way a Set records it, which also
+        // restarts the rotation clock rather than leaving a theme the user
+        // just asked for to be shuffled away a minute later.
+        root.recordApplied(piece, root.generatingReason)
+        root.themed(root.extractMode)
+        statusClear.restart()
+      } else {
+        root.status = ""
+        root.lastError = exitCode === 5 ? "Aether is not installed"
+          : "Could not build a theme from that piece"
+      }
+      // Whatever queued behind the generate, including the failed case: the
+      // queue is the user's Set, and a theme that did not build is no reason
+      // to swallow it.
+      if (root.queuedPiece) {
+        var queued = root.queuedPiece
+        var queuedReason = root.queuedReason
+        root.queuedPiece = null
+        root.apply(queued, queuedReason)
+      }
+    }
+  }
+
   function openArtPage(piece) {
     if (!piece) return
     Quickshell.execDetached(["xdg-open", piece.artPage])
@@ -746,6 +986,15 @@ Item {
     id: rotationTimer
     repeat: false
     onTriggered: {
+      // A generate is aether applying an entire theme, wallpaper included. A
+      // rotation landing in the middle of that has the two of them moving the
+      // current-background symlink at once, so this beat waits the generate
+      // out — a grace beat rather than a dropped period.
+      if (root.generating) {
+        interval = root.rotationGrace
+        start()
+        return
+      }
       // Re-armed a whole period out before the shuffle rather than after it. A
       // fetch that fails records no switch, so re-deriving from the timestamp
       // afterwards would put the next attempt a grace beat away and spin
@@ -915,6 +1164,7 @@ Item {
 
   Component.onCompleted: {
     startupProc.running = true
+    aetherProbe.running = true
     refresh()
   }
 
@@ -925,6 +1175,7 @@ Item {
   //
   //   omarchy-shell boringday random
   //   omarchy-shell boringday today
+  //   omarchy-shell boringday theme
   //   omarchy-shell boringday auto toggle
   //   omarchy-shell boringday status
 
@@ -959,6 +1210,15 @@ Item {
       return "Adding " + root.current.name + " to the current theme…"
     }
 
+    // The piece on the wall, for the same reason install does: from a
+    // keybinding there is no previewed piece for "this one" to mean.
+    function theme(): string {
+      if (!root.aetherReady) return "aether is not installed"
+      if (!root.current) return "Nothing set by this plugin yet"
+      root.generateTheme(root.current, "cli")
+      return "Building a theme from " + root.current.name + "…"
+    }
+
     function auto(state: string): string {
       var wanted = String(state || "toggle").toLowerCase()
       var next = root.autoRotate
@@ -984,8 +1244,12 @@ Item {
         nextChangeInSeconds: root.autoRotate ? Math.round(root.dueInMs() / 1000) : null,
         current: root.current ? { id: root.current.id, name: root.current.name, artist: root.current.artist } : null,
         today: root.today ? { id: root.today.id, name: root.today.name, artist: root.today.artist } : null,
+        extractMode: root.extractMode,
+        lightMode: root.lightMode,
+        aether: root.aetherReady,
         loading: root.loading,
         applying: root.applying,
+        generating: root.generating,
         lastError: root.lastError
       })
     }

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "boringday.wallpapers",
   "name": "Another Boring Piece",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "John Schmidt",
   "license": "MIT",
   "description": "Hand-picked fine art from anotherboring.day as your Omarchy background, with optional rotation on a schedule.",
@@ -24,7 +24,9 @@
     "defaults": {
       "autoRotate": false,
       "intervalSeconds": 3600,
-      "notify": true
+      "notify": true,
+      "extractMode": "pastel",
+      "lightMode": false
     },
     "schema": [
       {
@@ -42,7 +44,7 @@
         "max": 86400,
         "step": 300,
         "defaultValue": 3600,
-        "description": "The panel offers 1, 3, 12 and 24 hours (3600, 10800, 43200, 86400). Any other value in range is honoured too, it just matches none of the buttons."
+        "description": "The panel cycles through 1, 3, 12 and 24 hours (3600, 10800, 43200, 86400). Any other value in range is honoured and shown as itself; cycling from it lands on the nearest preset."
       },
       {
         "key": "notify",
@@ -50,6 +52,21 @@
         "label": "Notify on change",
         "defaultValue": true,
         "description": "Send a notification naming the piece each time the background changes."
+      },
+      {
+        "key": "extractMode",
+        "type": "enum",
+        "label": "Theme extraction mode",
+        "options": ["normal", "monochromatic", "analogous", "pastel", "material", "colorful", "muted", "bright", "complementary", "triadic", "split-complementary", "tetradic", "fire", "ocean", "forest", "earthtone", "neon", "sunset", "vaporwave", "midnight", "aurora", "high-contrast", "duotone"],
+        "defaultValue": "pastel",
+        "description": "How aether reads a palette out of the artwork when you build a theme from it. \"pastel\" is the default: a soft, low-chroma reading of the piece. \"normal\" hands the choice back to aether, which decides between a monochrome and a chromatic palette by analysing the image; the rest force a treatment. Unrecognised values fall back to \"pastel\"."
+      },
+      {
+        "key": "lightMode",
+        "type": "boolean",
+        "label": "Build light themes",
+        "defaultValue": false,
+        "description": "Build the light variant of the palette instead of the dark one. Only affects themes built from a piece."
       }
     ]
   }

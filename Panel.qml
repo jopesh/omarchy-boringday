@@ -31,6 +31,10 @@ Panel {
 
   readonly property var pieces: service && service.pieces ? service.pieces : []
   readonly property bool ready: service !== null
+  // The one action with a dependency outside Omarchy. Drawn disabled when the
+  // CLI is not there, rather than offered and then failing into the hero line.
+  readonly property bool aetherReady: service ? service.aetherReady : false
+  readonly property bool rotating: service ? service.autoRotate : false
 
   property int selectedIndex: 0
   readonly property var selected: selectedIndex >= 0 && selectedIndex < pieces.length
@@ -130,7 +134,6 @@ Panel {
     var rows = []
     for (var i = 0; i < pieces.length; i++) rows.push({ kind: "piece", index: i })
     rows.push({ kind: "auto", index: 0 })
-    rows.push({ kind: "interval", index: 0 })
     return rows
   }
 
@@ -145,23 +148,18 @@ Panel {
     return row !== null && row.kind === kind && row.index === index
   }
 
-  // Which chip the keyboard is sitting on while the cursor is on the interval
-  // row. Distinct from which period is in force: you walk across the chips and
-  // then activate one, the same way ButtonGroup's own Tab focus behaves.
-  property int intervalCursor: 0
-  readonly property int intervalIndex:
-    service ? Model.intervalIndex(service.intervalSeconds) : -1
-  readonly property int intervalCount: Model.INTERVALS.length
-
   function moveCursor(dx, dy) {
     cursorActive = true
     if (cursorRows.length === 0) return
-    // Left/right walks the interval chips when the cursor is on that row, and
-    // means nothing anywhere else.
+    // Left and right cycle the rotation period while the cursor is on the
+    // rotation row, and mean nothing anywhere else. The chips this replaced
+    // needed a cursor of their own to walk between and a second row to live
+    // on; one value needs neither.
     if (dy === 0) {
       var here = cursorRow()
-      if (dx !== 0 && here && here.kind === "interval")
-        intervalCursor = Math.max(0, Math.min(intervalCount - 1, intervalCursor + dx))
+      if (!here || here.kind !== "auto" || dx === 0) return
+      if (dx > 0) cycleInterval()
+      else cycleIntervalBack()
       return
     }
     cursorIndex = Math.max(0, Math.min(cursorRows.length - 1, cursorIndex + dy))
@@ -170,9 +168,6 @@ Panel {
     // keypress, so it previews as it goes rather than making the keyboard do a
     // select-then-look two-step.
     if (row && row.kind === "piece") selectedIndex = row.index
-    // Arriving on the chips, start from the period actually in force so the
-    // user sees their existing choice rather than a cursor parked elsewhere.
-    if (row && row.kind === "interval") intervalCursor = Math.max(0, intervalIndex)
     scrollCursorIntoView()
   }
 
@@ -194,7 +189,6 @@ Panel {
     // Enter must set the piece the user is actually looking at.
     if (row.kind === "piece") setSelected()
     else if (row.kind === "auto") toggleAuto()
-    else if (row.kind === "interval") setInterval(Model.INTERVALS[intervalCursor])
   }
 
   // Rows register themselves so scrollCursorIntoView can find the item under
@@ -261,8 +255,11 @@ Panel {
     setPiece(selected)
   }
 
-  function shuffle() {
-    if (service) service.shuffle("shuffle")
+  // The list's shuffle, not the pill's: this refills the rows and leaves the
+  // wall alone. Setting a random piece outright is still what a keybinding and
+  // the rotation do, through the service's other shuffle.
+  function shuffleList() {
+    if (service) service.shuffleList()
   }
 
   function download() {
@@ -271,6 +268,10 @@ Panel {
 
   function installToTheme() {
     if (service && selected) service.installToTheme(selected)
+  }
+
+  function generateTheme() {
+    if (service && selected) service.generateTheme(selected, "panel")
   }
 
   function openArtPage() {
@@ -293,17 +294,17 @@ Panel {
     if (service) service.cycleInterval()
   }
 
-  function setInterval(seconds) {
-    if (service) service.setIntervalSeconds(seconds)
+  function cycleIntervalBack() {
+    if (service) service.cycleIntervalBack()
   }
 
   // The letters the panel answers to, as a table rather than a ladder of
   // else-ifs — the same letters the action tooltips name in their own text,
   // written here beside the functions they call.
   readonly property var keyActions: ({
-    "s": root.shuffle, "d": root.download, "t": root.installToTheme,
-    "o": root.openArtPage, "r": root.refresh, "a": root.toggleAuto,
-    "i": root.cycleInterval, "e": root.toggleDescription,
+    "s": root.shuffleList, "d": root.download, "t": root.installToTheme,
+    "g": root.generateTheme, "o": root.openArtPage, "r": root.refresh,
+    "a": root.toggleAuto, "i": root.cycleInterval, "e": root.toggleDescription,
     "\r": root.setSelected, "\n": root.setSelected
   })
 
@@ -371,16 +372,20 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: "󰋩"
-    active: root.service ? root.service.autoRotate : false
+    // Rotation is said with the glyph, not with colour. BarIndicator — the
+    // shell's own bar-status component — turns the accent off and swaps
+    // activeText for inactiveText, so a bar item's state is a shape rather
+    // than a hue; the pill follows it. The slot is a fixed width either way,
+    // so the swap cannot shove its neighbours around.
+    text: root.rotating ? "󰚰" : "󰋩"
+    useActiveColor: false
     tooltipText: {
       if (!root.service) return "Another Boring Piece"
       if (root.service.current) return root.service.current.name + " — " + root.service.current.artist
       return "Another Boring Piece"
     }
     onPressed: function (buttonCode) {
-      if (buttonCode === Qt.RightButton) root.shuffle()
-      else if (buttonCode === Qt.MiddleButton) root.refresh()
+      if (buttonCode === Qt.MiddleButton) root.refresh()
       else root.toggle()
     }
   }
@@ -694,14 +699,6 @@ Panel {
               onClicked: root.setSelected()
             }
             PanelActionButton {
-              iconText: "󰒟"
-              tooltipText: "Shuffle a random piece  (s)"
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-              enabled: root.ready
-              onClicked: root.shuffle()
-            }
-            PanelActionButton {
               iconText: "󰇚"
               tooltipText: "Save a copy to Pictures  (d)"
               foreground: root.foreground
@@ -718,20 +715,22 @@ Panel {
               onClicked: root.installToTheme()
             }
             PanelActionButton {
+              iconText: "󰸌"
+              tooltipText: root.aetherReady
+                ? "Build a theme from this piece  (g)"
+                : "Build a theme from this piece — aether is not installed"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              enabled: root.selected !== null && root.ready && root.aetherReady
+              onClicked: root.generateTheme()
+            }
+            PanelActionButton {
               iconText: "󰖟"
               tooltipText: "Open on anotherboring.day  (o)"
               foreground: root.foreground
               fontFamily: root.fontFamily
               enabled: root.selected !== null
               onClicked: root.openArtPage()
-            }
-            PanelActionButton {
-              iconText: "󰑐"
-              tooltipText: "Fetch today's pieces again  (r)"
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-              enabled: root.ready
-              onClicked: root.refresh()
             }
           }
 
@@ -744,10 +743,46 @@ Panel {
             width: parent.width
             spacing: Style.space(8)
 
-            PanelSectionHeader {
-              text: "TODAY AND TWO MORE"
-              foreground: root.foreground
-              fontFamily: root.fontFamily
+            // The two controls that act on the list, on the list's own
+            // header rather than in the row above it. That row acts on the
+            // piece being previewed; these act on what is being chosen from,
+            // and a control reads as belonging to whatever it sits on.
+            Item {
+              width: parent.width
+              height: Math.max(sectionHeader.implicitHeight, listActions.implicitHeight)
+
+              PanelSectionHeader {
+                id: sectionHeader
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                text: "TODAY AND TWO MORE"
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+              }
+
+              Row {
+                id: listActions
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.spacing.controlGap
+
+                PanelActionButton {
+                  iconText: "󰒟"
+                  tooltipText: "Shuffle in new pieces  (s)"
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  enabled: root.ready
+                  onClicked: root.shuffleList()
+                }
+                PanelActionButton {
+                  iconText: "󰑐"
+                  tooltipText: "Fetch today's pieces again  (r)"
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  enabled: root.ready
+                  onClicked: root.refresh()
+                }
+              }
             }
 
             Item {
@@ -780,14 +815,27 @@ Panel {
             foreground: root.foreground
           }
 
-          // Rotation. The toggle and the interval are two targets on one row:
-          // the switch owns on/off, the interval label cycles the presets.
+          // Rotation, on one row: the label, the period, the switch. The
+          // period used to be four chips on a row of their own under a
+          // caption that named it a third time — three lines of card for one
+          // switch and one choice between four numbers.
+          //
+          // As a value rather than a set of chips it also stops lying. A
+          // period set by hand in shell.json matched no chip, so the chips
+          // could only leave themselves all unselected and let the caption
+          // explain; the value simply reads "every 45 minutes", and cycling
+          // from it lands on the nearest preset. The cost is that reaching
+          // 24h from 1h is three clicks rather than one.
           CursorSurface {
             id: autoRow
             width: parent.width
             hasCursor: root.rowHasCursor("auto", 0)
             foreground: root.foreground
-            implicitHeight: autoContent.implicitHeight + Style.spacing.controlPaddingY * 2
+            // No padding of its own. The switch already carries six pixels of
+            // cursor-ring padding on every side, and that is the row's
+            // breathing room; adding controlPaddingY on top of it was making
+            // the row half again as tall as the control in it.
+            implicitHeight: autoContent.implicitHeight
 
             Component.onCompleted: root.registerCursorItem("auto", 0, autoRow)
 
@@ -806,38 +854,66 @@ Panel {
               anchors.rightMargin: Style.spacing.rowPaddingX / 2
               implicitHeight: Math.max(autoLabel.implicitHeight, autoSwitch.implicitHeight)
 
-              Column {
+              // Elides rather than wraps, and gives its width up to the period
+              // beside it: "every 45 minutes" is longer than any preset reads,
+              // and the label is the part that can afford to lose characters.
+              Text {
                 id: autoLabel
                 anchors.left: parent.left
+                anchors.right: intervalCycle.left
+                anchors.rightMargin: Style.spacing.controlGap
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Rotate automatically"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                maximumLineCount: 1
+                elide: Text.ElideRight
+              }
+
+              // Sized to a full control height rather than to the text, so the
+              // click target is the size of a control and not the size of two
+              // words. Dim while rotation is off, because the period is inert
+              // then — which is the other thing the chips row used to say.
+              Item {
+                id: intervalCycle
                 anchors.right: autoSwitch.left
                 anchors.rightMargin: Style.spacing.controlGap
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: Style.spacing.labelGap
+                width: cycleRow.implicitWidth
+                height: Math.max(cycleRow.implicitHeight, Style.spacing.controlHeight)
 
-                Text {
-                  width: parent.width
-                  text: "Rotate automatically"
-                  color: root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  maximumLineCount: 1
-                  elide: Text.ElideRight
+                Row {
+                  id: cycleRow
+                  anchors.centerIn: parent
+                  spacing: Style.space(4)
+
+                  Text {
+                    id: intervalLabel
+                    text: root.service ? "every " + root.service.intervalLabel : ""
+                    color: cycleMouse.containsMouse || root.rotating
+                      ? root.foreground : root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    maximumLineCount: 1
+                  }
+
+                  Text {
+                    text: "󰅂"
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                  }
                 }
 
-                // Kept alongside the chips because it is the only thing that
-                // can describe a period set by hand in shell.json, which
-                // matches no chip.
-                Text {
-                  id: intervalLabel
-                  width: parent.width
-                  height: root.captionHeight
-                  text: root.service ? "every " + root.service.intervalLabel : ""
-                  color: root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  maximumLineCount: 1
-                  elide: Text.ElideRight
-                  verticalAlignment: Text.AlignVCenter
+                MouseArea {
+                  id: cycleMouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  enabled: root.ready
+                  onEntered: root.focusRow("auto", 0)
+                  onClicked: root.cycleInterval()
                 }
               }
 
@@ -845,50 +921,12 @@ Panel {
                 id: autoSwitch
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                checked: root.service ? root.service.autoRotate : false
+                checked: root.rotating
                 interactive: root.ready
                 hasCursor: root.rowHasCursor("auto", 0)
                 foreground: root.foreground
                 onHovered: function (on) { if (on) root.focusRow("auto", 0) }
                 onToggled: root.toggleAuto()
-              }
-            }
-          }
-
-          // How often, as a row of chips rather than a value you cycle blindly.
-          // Not wrapped in a CursorSurface: ButtonGroup's chips paint their own
-          // selected and hover-cursor states from the same Style tokens, and a
-          // surface behind them would put two highlights on one row.
-          Item {
-            id: intervalRow
-            width: parent.width
-            implicitHeight: intervalGroup.implicitHeight
-
-            Component.onCompleted: root.registerCursorItem("interval", 0, intervalRow)
-
-            ButtonGroup {
-              id: intervalGroup
-              anchors.left: parent.left
-              anchors.leftMargin: Style.spacing.rowPaddingX / 2
-              anchors.verticalCenter: parent.verticalCenter
-              options: Model.intervalOptions()
-              // Unselects every chip when shell.json carries a period that is
-              // not one of the presets; the caption above still names it.
-              value: root.service ? String(root.service.intervalSeconds) : ""
-              foreground: root.foreground
-              accent: root.bar ? root.bar.urgent : Color.accent
-              fontFamily: root.fontFamily
-              fontSize: Style.font.bodySmall
-              // Panel-cursor driven, per ButtonGroup's contract: the panel owns
-              // the cursor, so the group must not also take Tab focus.
-              focusable: false
-              cursorIndex: root.rowHasCursor("interval", 0) ? root.intervalCursor : -1
-
-              onChanged: function (value) { root.setInterval(Number(value)) }
-              onHovered: function (index, isHovered) {
-                if (!isHovered) return
-                root.focusRow("interval", 0)
-                root.intervalCursor = index
               }
             }
           }
