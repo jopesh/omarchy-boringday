@@ -125,9 +125,19 @@ function nextInterval(seconds) {
 // in file names. Control characters are stripped rather than escaped — no
 // field here is meant to contain any — and every field is cut to a ceiling, so
 // one enormous value cannot be pasted through the whole UI.
+//
+// Angle brackets go the same way, and for the same reason: a title is a title,
+// not markup. The panel draws every one of these fields through a Text item
+// pinned to Text.PlainText, but the same strings also reach surfaces this
+// plugin does not own — the bar button's tooltip, the hero's status line, the
+// notification daemon's body — and those decide for themselves whether what
+// they were handed looks like rich text. A payload carrying `<img src=…>` in
+// an artist name would then be a museum label that makes a network request.
+// Removing the characters at the boundary settles it for every consumer at
+// once rather than field by field, downstream, forever.
 function boundedText(value, max, fallback) {
   if (value === undefined || value === null) return fallback
-  var s = String(value).replace(/[\u0000-\u001f\u007f]+/g, " ").trim()
+  var s = String(value).replace(/[\u0000-\u001f\u007f<>]+/g, " ").trim()
   if (!s) return fallback
   return s.length > max ? s.substring(0, max) : s
 }
