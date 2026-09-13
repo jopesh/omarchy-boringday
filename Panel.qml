@@ -585,8 +585,12 @@ Panel {
               width: parent.width
               height: root.chipHeight
 
+              // Inset by one border width: at a fractional display scale
+              // (seen at 1.25) the first chip's left border sits on the
+              // content's clipped left edge and is not drawn.
               Row {
                 anchors.left: parent.left
+                anchors.leftMargin: Math.max(1, Style.space(1))
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: root.chipGap
 
