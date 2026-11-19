@@ -816,7 +816,7 @@ Panel {
 
             Button {
               id: moreButton
-              text: "More  󰅀"
+              text: "More"
               bordered: true
               active: moreMenu.opened
               foreground: root.foreground
@@ -826,15 +826,28 @@ Panel {
               opacity: enabled ? 1 : 0.5
               onClicked: root.toggleMenu(moreMenu)
 
-              // The key that does the same, dimmed after the label — where
-              // the menus put each row's letter — instead of in a tooltip.
+              // The key, then the arrow: the arrow says what the button does,
+              // so it stays at the end, after the letter that does it too.
               leftAlign: true
-              width: implicitWidth + moreButtonKey.implicitWidth + Style.space(10)
+              width: implicitWidth + moreButtonKey.implicitWidth + moreChevron.implicitWidth
+                + Style.space(18)
+
+              Text {
+                id: moreChevron
+                anchors.right: parent.right
+                anchors.rightMargin: moreButton.horizontalPadding
+                anchors.verticalCenter: parent.verticalCenter
+                text: "󰅀"
+                textFormat: Text.PlainText
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+              }
 
               Text {
                 id: moreButtonKey
-                anchors.right: parent.right
-                anchors.rightMargin: moreButton.horizontalPadding
+                anchors.right: moreChevron.left
+                anchors.rightMargin: Style.space(8)
                 anchors.verticalCenter: parent.verticalCenter
                 text: "m"
                 textFormat: Text.PlainText
