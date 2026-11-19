@@ -787,7 +787,6 @@ Panel {
             Button {
               id: setButton
               text: "Set as background"
-              tooltipText: "Enter"
               bordered: true
               selected: true
               foreground: root.foreground
@@ -796,12 +795,28 @@ Panel {
               enabled: root.selected !== null && root.ready
               opacity: enabled ? 1 : 0.5
               onClicked: root.setSelected()
+
+              // The key that does the same, dimmed after the label — where
+              // the menus put each row's letter — instead of in a tooltip.
+              leftAlign: true
+              width: implicitWidth + setButtonKey.implicitWidth + Style.space(10)
+
+              Text {
+                id: setButtonKey
+                anchors.right: parent.right
+                anchors.rightMargin: setButton.horizontalPadding
+                anchors.verticalCenter: parent.verticalCenter
+                text: "↵"
+                textFormat: Text.PlainText
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
             }
 
             Button {
               id: moreButton
               text: "More  󰅀"
-              tooltipText: moreMenu.opened ? "" : "m"
               bordered: true
               active: moreMenu.opened
               foreground: root.foreground
@@ -810,6 +825,23 @@ Panel {
               enabled: root.selected !== null && root.ready
               opacity: enabled ? 1 : 0.5
               onClicked: root.toggleMenu(moreMenu)
+
+              // The key that does the same, dimmed after the label — where
+              // the menus put each row's letter — instead of in a tooltip.
+              leftAlign: true
+              width: implicitWidth + moreButtonKey.implicitWidth + Style.space(10)
+
+              Text {
+                id: moreButtonKey
+                anchors.right: parent.right
+                anchors.rightMargin: moreButton.horizontalPadding
+                anchors.verticalCenter: parent.verticalCenter
+                text: "m"
+                textFormat: Text.PlainText
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
 
               PopupMenu {
                 id: moreMenu
