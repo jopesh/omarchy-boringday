@@ -733,6 +733,7 @@ Panel {
               foreground: root.foreground
               fontFamily: root.fontFamily
               enabled: root.selected !== null && root.ready && root.aetherReady
+                && !root.service.applying && !root.service.generating
               onClicked: root.generateTheme()
             }
             PanelActionButton {

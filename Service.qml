@@ -194,7 +194,10 @@ Item {
   }
 
   function refresh() {
-    if (tripleProc.running) return
+    // Behind a list refill for the reason the refill waits behind this: both
+    // replace the list wholesale, and whichever landed second would undo the
+    // other.
+    if (tripleProc.running || shufflingList) return
     lastError = ""
     loading = true
     tripleProc.command = jsonFetch(Model.API_TRIPLE)
@@ -894,8 +897,13 @@ Item {
   property var generatingPiece: null
   property string generatingReason: "theme"
 
+  // Not queued behind a Set the way a Set queues behind this: a theme is a
+  // deliberate, heavyweight action, and building one from a piece the user
+  // picked a moment before a different Set landed would be a surprise. The
+  // panel draws the action disabled while either is running and the IPC says
+  // so, so the refusal is never silent. Returns whether it started.
   function generateTheme(piece, reason) {
-    if (!piece || !piece.url || generating || applying) return
+    if (!piece || !piece.url || generating || applying) return false
     generating = true
     lastError = ""
     generatingPiece = piece
@@ -905,6 +913,7 @@ Item {
       wallpaperDir + "/" + piece.id + Model.extensionFor(piece.url),
       extractMode, lightMode ? "1" : "0"])
     generateProc.running = true
+    return true
   }
 
   Process {
@@ -1215,7 +1224,9 @@ Item {
     function theme(): string {
       if (!root.aetherReady) return "aether is not installed"
       if (!root.current) return "Nothing set by this plugin yet"
-      root.generateTheme(root.current, "cli")
+      if (root.generating) return "Already building a theme"
+      if (root.applying) return "Busy setting the background; try again in a moment"
+      if (!root.generateTheme(root.current, "cli")) return "Could not start a theme build"
       return "Building a theme from " + root.current.name + "…"
     }
 
