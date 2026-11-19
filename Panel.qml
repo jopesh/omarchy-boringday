@@ -907,7 +907,7 @@ Panel {
 
                   Text {
                     id: intervalLabel
-                    text: root.service ? "every " + root.service.intervalLabel : ""
+                    text: root.service ? root.service.rotationPhrase : ""
                     textFormat: Text.PlainText
                     color: cycleMouse.containsMouse || root.rotating
                       ? root.foreground : root.dim

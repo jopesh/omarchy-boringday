@@ -99,7 +99,8 @@ omarchy-shell boringday today           # set today's piece
 omarchy-shell boringday install         # add the piece on the wall to this theme
 omarchy-shell boringday theme           # build a desktop theme from the piece on the wall
 omarchy-shell boringday auto toggle     # on | off | toggle
-omarchy-shell boringday interval 1800   # seconds
+omarchy-shell boringday interval 1800   # seconds (rotates to random pieces)
+omarchy-shell boringday rotateTo today  # follow the daily release; or random
 omarchy-shell boringday current         # what's on the wall
 omarchy-shell boringday status          # JSON: interval, next change, errors
 omarchy-shell boringday refresh         # refetch today's set
@@ -121,6 +122,7 @@ toggle and the `boringday auto` call are the same switch.
 { "id": "boringday.wallpapers",
   "autoRotate": true,        // rotate on a schedule
   "intervalSeconds": 3600,   // the panel cycles 1h / 3h / 12h / 24h
+  "rotateTo": "random",      // or "today": follow the daily release instead
   "notify": true,            // notification naming each piece as it changes
   "extractMode": "pastel",   // how aether reads a palette out of the artwork
   "lightMode": false }       // build the light variant instead of the dark one

@@ -5,6 +5,25 @@ Notable changes to Another Boring Piece. Versions follow
 [GitHub release](https://github.com/jopesh/omarchy-boringday/releases) from a
 `v`-prefixed tag.
 
+## [Unreleased]
+
+### Added
+
+- **Follow today's piece.** `"rotateTo": "today"` (or
+  `omarchy-shell boringday rotateTo today`, or the stop after 24 hours on the
+  panel's period cycle) keeps the wall on the daily release: shortly after
+  midnight UTC the triple is fetched again and the new piece is set, and on
+  startup the same happens if the latest release has not been set or checked
+  yet. A piece set by hand after the release stays until the next one.
+  Suggested by [@rgouveiamendes](https://github.com/rgouveiamendes) in
+  [#7](https://github.com/jopesh/omarchy-boringday/issues/7).
+
+### Fixed
+
+- `boringday today` sets today's piece even when the triple has not been
+  fetched yet, or when the one held is from before midnight, instead of
+  returning after starting a fetch.
+
 ## [1.1.1] — 2026-11-19
 
 ### Fixed
