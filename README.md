@@ -127,20 +127,20 @@ toggle and the `boringday auto` call are the same switch.
   "intervalSeconds": 3600,   // the panel cycles 1h / 3h / 12h / 24h
   "rotateTo": "random",      // or "today": follow the daily release instead
   "notify": true,            // notification naming each piece as it changes
-  "extractMode": "pastel",   // how aether reads a palette out of the artwork
+  "extractMode": "normal",   // how aether reads a palette out of the artwork
   "lightMode": false }       // build the light variant instead of the dark one
 ```
 
-`extractMode` is one of aether's own modes. It defaults to `pastel`, a soft
-low-chroma reading that keeps a desktop built from a painting habitable.
-`normal` hands the choice back to aether, which decides between a monochrome
-and a chromatic palette by analysing the image, while `monochromatic`,
+`extractMode` is one of aether's own modes. It defaults to `normal`, which
+leaves the choice to aether: it decides between a monochrome and a chromatic
+palette by analysing the image. `pastel` gives a soft low-chroma reading that
+keeps a desktop built from a painting habitable, while `monochromatic`,
 `analogous`, `material`, `colorful`, `muted`, `bright`, `complementary`,
 `triadic`, `split-complementary`, `tetradic`, `fire`, `ocean`, `forest`,
 `earthtone`, `neon`, `sunset`, `vaporwave`, `midnight`, `aurora`,
 `high-contrast` and `duotone` each force a treatment; `aether --list-modes`
 describes them. Both settings apply only to themes built from a piece, and
-anything unrecognised falls back to `pastel`.
+anything unrecognised falls back to `normal`.
 
 The panel offers the presets and today's piece in a dropdown. A value set by
 hand is shown as itself — `"intervalSeconds": 2700` reads "Every 45

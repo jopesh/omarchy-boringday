@@ -29,7 +29,7 @@ var EXTRACT_MODES = ["normal", "monochromatic", "analogous", "pastel", "material
   "colorful", "muted", "bright", "complementary", "triadic", "split-complementary",
   "tetradic", "fire", "ocean", "forest", "earthtone", "neon", "sunset", "vaporwave",
   "midnight", "aurora", "high-contrast", "duotone"]
-var DEFAULT_EXTRACT_MODE = "pastel"
+var DEFAULT_EXTRACT_MODE = "normal"
 
 function extractMode(value) {
   var wanted = String(value === undefined || value === null ? "" : value).trim().toLowerCase()

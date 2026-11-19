@@ -25,6 +25,10 @@ Notable changes to Another Boring Piece. Versions follow
 
 ### Changed
 
+- **Themes default to aether's own reading.** `extractMode` now defaults to
+  `normal`, where aether picks a monochrome or a chromatic palette from the
+  image, instead of `pastel`. Set `"extractMode": "pastel"` to keep the old
+  look; a mode already set in `shell.json` is unaffected.
 - **A quieter panel.** The six icon buttons are gone. Under the preview,
   **Set as background** is the one button, and **More** (or `m`) holds saving
   a copy, adding to the current theme, building a theme and opening the art
