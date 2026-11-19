@@ -57,6 +57,7 @@ Panel {
     id: subtitleRef
     visible: false
     text: "X"
+    textFormat: Text.PlainText
     font.family: root.fontFamily
     font.pixelSize: Style.font.subtitle
     font.bold: true
@@ -65,6 +66,7 @@ Panel {
     id: captionRef
     visible: false
     text: "X"
+    textFormat: Text.PlainText
     font.family: root.fontFamily
     font.pixelSize: Style.font.caption
   }
@@ -74,6 +76,7 @@ Panel {
     // Kept in lockstep with descriptionLines so the reserve and the clamp can
     // never disagree.
     text: ("X\n").repeat(Math.max(0, root.descriptionLines - 1)) + "X"
+    textFormat: Text.PlainText
     font.family: root.fontFamily
     font.pixelSize: Style.font.bodySmall
   }
@@ -457,6 +460,7 @@ Panel {
             iconComponent: Component {
               Text {
                 text: "󰋩"
+                textFormat: Text.PlainText
                 color: hero.foreground
                 font.family: hero.fontFamily
                 font.pixelSize: Style.font.display
@@ -492,6 +496,7 @@ Panel {
               anchors.centerIn: parent
               visible: preview.status !== Image.Ready
               text: root.previewSource === "" ? "󰋩" : "󰋫"
+              textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.displayLarge
@@ -513,6 +518,7 @@ Panel {
                 id: todayBadge
                 anchors.centerIn: parent
                 text: "TODAY"
+                textFormat: Text.PlainText
                 color: "#ffffff"
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -551,6 +557,7 @@ Panel {
                 width: parent.width
                 height: root.titleHeight
                 text: root.selected ? root.selected.name : "—"
+                textFormat: Text.PlainText
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.subtitle
@@ -564,6 +571,7 @@ Panel {
                 width: parent.width
                 height: root.captionHeight
                 text: root.selected ? Model.credit(root.selected) : ""
+                textFormat: Text.PlainText
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -612,6 +620,7 @@ Panel {
                       anchors.centerIn: parent
                       width: Math.min(implicitWidth, parent.width - Style.space(16))
                       text: modelData
+                      textFormat: Text.PlainText
                       color: root.dim
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.caption
@@ -649,6 +658,7 @@ Panel {
               anchors.right: parent.right
               anchors.top: parent.top
               text: root.selected ? root.selected.description : ""
+              textFormat: Text.PlainText
               color: Qt.darker(root.foreground, 1.25)
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
@@ -670,6 +680,7 @@ Panel {
               if (root.descriptionExpanded) return "󰅃  Show less"
               return root.descriptionTruncated ? "󰅀  Show more" : ""
             }
+            textFormat: Text.PlainText
             color: toggleMouse.containsMouse ? root.foreground : root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -722,6 +733,7 @@ Panel {
               foreground: root.foreground
               fontFamily: root.fontFamily
               enabled: root.selected !== null && root.ready && root.aetherReady
+                && !root.service.applying && !root.service.generating
               onClicked: root.generateTheme()
             }
             PanelActionButton {
@@ -864,6 +876,7 @@ Panel {
                 anchors.rightMargin: Style.spacing.controlGap
                 anchors.verticalCenter: parent.verticalCenter
                 text: "Rotate automatically"
+                textFormat: Text.PlainText
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
@@ -891,6 +904,7 @@ Panel {
                   Text {
                     id: intervalLabel
                     text: root.service ? "every " + root.service.intervalLabel : ""
+                    textFormat: Text.PlainText
                     color: cycleMouse.containsMouse || root.rotating
                       ? root.foreground : root.dim
                     font.family: root.fontFamily
@@ -900,6 +914,7 @@ Panel {
 
                   Text {
                     text: "󰅂"
+                    textFormat: Text.PlainText
                     color: root.dim
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.bodySmall
@@ -952,6 +967,7 @@ Panel {
               Text {
                 height: root.captionHeight
                 text: "Curated by"
+                textFormat: Text.PlainText
                 color: root.dim
                 opacity: 0.7
                 font.family: root.fontFamily
@@ -966,6 +982,7 @@ Panel {
                 id: siteCredit
                 height: root.captionHeight
                 text: "anotherboring.day"
+                textFormat: Text.PlainText
                 color: siteMouse.containsMouse ? root.foreground : root.dim
                 opacity: siteMouse.containsMouse ? 1.0 : 0.7
                 font.family: root.fontFamily
@@ -1054,6 +1071,7 @@ Panel {
       Text {
         width: parent.width
         text: pieceRow.piece ? pieceRow.piece.name : ""
+        textFormat: Text.PlainText
         color: root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall
@@ -1066,6 +1084,7 @@ Panel {
         text: pieceRow.piece
           ? (pieceRow.piece.isToday ? "Today  ·  " : "") + pieceRow.piece.artist
           : ""
+        textFormat: Text.PlainText
         color: root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
