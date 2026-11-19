@@ -61,6 +61,8 @@ Item {
   readonly property bool autoRotate: setting("autoRotate", false) === true
   readonly property int intervalSeconds: Model.clampInterval(setting("intervalSeconds", 3600))
   readonly property bool notifyOnSwitch: setting("notify", true) === true
+  readonly property string rotateTo: Model.rotateTarget(setting("rotateTo", Model.DEFAULT_ROTATE_TARGET))
+  readonly property bool followsToday: rotateTo === "today"
   // Validated here rather than at the point of use: a mode typed into
   // shell.json by hand is an argument on aether's command line, and an
   // unrecognised one would fail the generate outright instead of quietly
@@ -71,10 +73,19 @@ Item {
   // Persist through the shell so the write lands in shell.json next to every
   // other widget setting instead of in a private file of our own.
   function writeSetting(name, value) {
+    var change = ({})
+    change[name] = value
+    return writeSettings(change)
+  }
+
+  // Several keys in one write: the panel's period cycle moves between an
+  // interval and following today's piece, and two single writes in a row
+  // would each merge from the settings as they stood before the other landed.
+  function writeSettings(change) {
     if (!shell || typeof shell.updateEntryInline !== "function") return false
     var next = ({})
     for (var key in settings) next[key] = settings[key]
-    next[name] = value
+    for (var name in change) next[name] = change[name]
     delete next.id
     shell.updateEntryInline(pluginId, next)
     return true
@@ -89,16 +100,32 @@ Item {
     return !autoRotate
   }
 
+  // Setting a period is asking for interval rotation, so it also leaves
+  // today-following: "every 3 hours" while the schedule ignores the period
+  // would be a setting that says one thing and does another.
   function setIntervalSeconds(seconds) {
-    writeSetting("intervalSeconds", Model.clampInterval(seconds))
+    writeSettings({ rotateTo: "random", intervalSeconds: Model.clampInterval(seconds) })
   }
 
+  function setRotateTo(target) {
+    writeSetting("rotateTo", Model.rotateTarget(target))
+  }
+
+  // Today's piece is one more stop on the panel's period cycle, after 24 hours
+  // going forwards and before 1 hour going backwards — it is the slowest
+  // rotation there is, and one control keeps the row a single value.
   function cycleInterval() {
-    setIntervalSeconds(Model.nextInterval(intervalSeconds))
+    var first = Model.INTERVALS[0]
+    if (followsToday) setIntervalSeconds(first)
+    else if (Model.nextInterval(intervalSeconds) === first) setRotateTo("today")
+    else setIntervalSeconds(Model.nextInterval(intervalSeconds))
   }
 
   function cycleIntervalBack() {
-    setIntervalSeconds(Model.prevInterval(intervalSeconds))
+    var last = Model.INTERVALS[Model.INTERVALS.length - 1]
+    if (followsToday) setIntervalSeconds(last)
+    else if (Model.prevInterval(intervalSeconds) === last) setRotateTo("today")
+    else setIntervalSeconds(Model.prevInterval(intervalSeconds))
   }
 
   // ---------------------------------------------------------------- state
@@ -131,6 +158,12 @@ Item {
   // Phrased for the panel's "every ..." caption and the IPC replies, both of
   // which read it straight after the word "every".
   readonly property string intervalLabel: Model.everyLabel(intervalSeconds)
+  // The whole schedule as one phrase, for the panel's rotation row.
+  readonly property string rotationPhrase: followsToday
+    ? "today's piece, daily" : "every " + intervalLabel
+  // And as the IPC replies say it once rotation is on.
+  readonly property string rotationReply: followsToday
+    ? "Following today's piece" : "Rotating every " + intervalLabel
 
   signal applied(var piece)
   signal downloaded(string path)
@@ -196,15 +229,29 @@ Item {
       : "Could not reach anotherboring.day"
   }
 
+  // Returns whether a fetch is now in flight — one already running counts —
+  // so a caller waiting on the result knows tripleProc's exit will come.
   function refresh() {
+    if (tripleProc.running) return true
     // Behind a list refill for the reason the refill waits behind this: both
     // replace the list wholesale, and whichever landed second would undo the
     // other.
-    if (tripleProc.running || shufflingList) return
+    if (shufflingList) return false
     lastError = ""
     loading = true
     tripleProc.command = jsonFetch(Model.API_TRIPLE)
     tripleProc.running = true
+    return true
+  }
+
+  // The triple is fetched at startup and on request, so a shell left running
+  // across midnight still holds yesterday's. Today's piece is stale once a
+  // newer release has come out, by the piece's own releaseDate.
+  function todayIsStale() {
+    var piece = pinnedToday
+    if (!piece) return true
+    var released = Model.releasedAt(piece)
+    return isFinite(released) && released < Model.releaseStart(Date.now())
   }
 
   function adoptTriple(text) {
@@ -241,6 +288,14 @@ Item {
     onExited: function (exitCode) {
       root.loading = false
       if (exitCode !== 0) root.lastError = root.fetchError(exitCode)
+      // Whoever asked for today's piece while there was none, or only
+      // yesterday's, gets it now rather than having to ask again.
+      if (root.todayPendingReason) {
+        var reason = root.todayPendingReason
+        root.todayPendingReason = ""
+        if (exitCode === 0 && root.pinnedToday) root.apply(root.pinnedToday, reason)
+      }
+      if (root.followPending) root.concludeFollow(exitCode === 0)
     }
   }
 
@@ -653,15 +708,22 @@ Item {
     applyProc.running = true
   }
 
+  property string todayPendingReason: ""
+
   function applyToday(reason) {
-    if (today) apply(today, reason || "today")
-    else refresh()
+    if (!todayIsStale()) {
+      apply(pinnedToday, reason || "today")
+      return
+    }
+    todayPendingReason = reason || "today"
+    if (!refresh()) todayPendingReason = ""
   }
 
   function recordApplied(piece, reason) {
     var now = Date.now()
     current = piece
     lastSwitchAt = now
+    followAttempts = 0
     recentIds = Model.pushRecent(recentIds, piece.id, 5)
     persist()
     armRotation()
@@ -973,9 +1035,88 @@ Item {
   // away.
 
   function dueInMs() {
+    if (followsToday) return followDueInMs()
     var period = intervalSeconds * 1000
     if (!lastSwitchAt) return 0
     return Math.max(0, lastSwitchAt + period - Date.now())
+  }
+
+  // ------------------------------------------------------ following today
+  //
+  // The other rotation target. Instead of a period it waits for the next
+  // release: a little after midnight UTC it fetches the triple again and puts
+  // today's piece on the wall if it is not already there. The same check runs
+  // once at startup whenever nothing has been switched or checked since the
+  // latest release, which covers a machine that was off or asleep at
+  // midnight. A switch made by hand after the release counts as the day's
+  // choice and stands until the next one, the way a manual switch restarts
+  // the interval clock.
+  //
+  // Late releases and dead networks are retried every few minutes for a few
+  // hours, then left until the next midnight rather than polled all day.
+
+  // Past midnight before asking, so the release has a moment to be published.
+  readonly property int releaseDelay: 120000
+  readonly property int followRetryMs: 600000
+  readonly property int followAttemptLimit: 18
+
+  property bool followPending: false
+  property int followAttempts: 0
+  // When a check last found today's piece already on the wall. Kept apart
+  // from lastSwitchAt, which only moves when the wall does, and in memory
+  // only: a restart costs one more check against a triple it fetches anyway.
+  property double followCheckedAt: 0
+
+  function followDueInMs() {
+    var now = Date.now()
+    var release = Model.releaseStart(now)
+    var settled = Math.max(lastSwitchAt, followCheckedAt)
+    var target = settled >= release ? Model.nextRelease(now) : release
+    return Math.max(0, target + releaseDelay - now)
+  }
+
+  function followToday() {
+    followPending = true
+    if (!refresh()) {
+      followPending = false
+      retryFollow()
+    }
+  }
+
+  function concludeFollow(fetched) {
+    followPending = false
+    if (!autoRotate || !followsToday) return
+    var piece = pinnedToday
+    // Fetched before the new piece was published: still yesterday's.
+    if (!fetched || !piece || todayIsStale()) {
+      retryFollow()
+      return
+    }
+    if (current && current.id === piece.id) {
+      followAttempts = 0
+      followCheckedAt = Date.now()
+      armRotation()
+      return
+    }
+    // A retry is armed first so a Set that fails still gets another go; one
+    // that lands re-arms for the next release through recordApplied.
+    retryFollow()
+    // A `boringday today` that was waiting on the same fetch already set it.
+    if (applying && pendingPiece && pendingPiece.id === piece.id) return
+    apply(piece, "auto")
+  }
+
+  function retryFollow() {
+    rotationTimer.stop()
+    followAttempts += 1
+    if (followAttempts > followAttemptLimit) {
+      followAttempts = 0
+      followCheckedAt = Date.now()
+      armRotation()
+      return
+    }
+    rotationTimer.interval = followRetryMs
+    rotationTimer.start()
   }
 
   // A rotation that is already due still waits out this much, so a login does
@@ -1013,6 +1154,10 @@ Item {
       // against a dead network for as long as it stayed dead. A shuffle that
       // does land arms it again off its own timestamp, which is this same
       // moment.
+      if (root.followsToday) {
+        root.followToday()
+        return
+      }
       interval = Math.max(root.rotationGrace, root.intervalSeconds * 1000)
       start()
       root.shuffle("auto")
@@ -1021,6 +1166,10 @@ Item {
 
   onAutoRotateChanged: armRotation()
   onIntervalSecondsChanged: armRotation()
+  onRotateToChanged: {
+    followAttempts = 0
+    armRotation()
+  }
 
   // ------------------------------------------------------------ persistence
   //
@@ -1200,8 +1349,9 @@ Item {
     }
 
     function today(): string {
+      var stale = root.todayIsStale()
       root.applyToday("cli")
-      return root.today ? root.today.name + " — " + root.today.artist : "Fetching today's piece…"
+      return stale ? "Fetching today's piece…" : root.pinnedToday.name + " — " + root.pinnedToday.artist
     }
 
     function refresh(): string {
@@ -1240,7 +1390,17 @@ Item {
       else if (wanted === "off" || wanted === "false" || wanted === "disable") next = false
       else next = !root.autoRotate
       root.setAutoRotate(next)
-      return next ? "Rotating every " + root.intervalLabel : "Rotation off"
+      return next ? root.rotationReply : "Rotation off"
+    }
+
+    // What rotation lands on: "random" (a piece every interval) or "today"
+    // (today's piece, switched once it is released).
+    function rotateTo(target: string): string {
+      var wanted = String(target || "").trim().toLowerCase()
+      if (Model.ROTATE_TARGETS.indexOf(wanted) === -1)
+        return "Rotating to " + root.rotateTo + " (one of: " + Model.ROTATE_TARGETS.join(", ") + ")"
+      root.setRotateTo(wanted)
+      return wanted === "today" ? "Following today's piece" : "Rotating every " + root.intervalLabel
     }
 
     function interval(seconds: string): string {
@@ -1254,6 +1414,7 @@ Item {
       return Model.statusJson({
         autoRotate: root.autoRotate,
         intervalSeconds: root.intervalSeconds,
+        rotateTo: root.rotateTo,
         notify: root.notifyOnSwitch,
         nextChangeInSeconds: root.autoRotate ? Math.round(root.dueInMs() / 1000) : null,
         current: root.current ? { id: root.current.id, name: root.current.name, artist: root.current.artist } : null,

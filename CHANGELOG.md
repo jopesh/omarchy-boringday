@@ -5,6 +5,37 @@ Notable changes to Another Boring Piece. Versions follow
 [GitHub release](https://github.com/jopesh/omarchy-boringday/releases) from a
 `v`-prefixed tag.
 
+## [Unreleased]
+
+### Added
+
+- **Follow today's piece.** `"rotateTo": "today"` (or
+  `omarchy-shell boringday rotateTo today`, or the stop after 24 hours on the
+  panel's period cycle) keeps the wall on the daily release: shortly after
+  midnight UTC the triple is fetched again and the new piece is set, and on
+  startup the same happens if the latest release has not been set or checked
+  yet. A piece set by hand after the release stays until the next one.
+  Suggested by [@rgouveiamendes](https://github.com/rgouveiamendes) in
+  [#7](https://github.com/jopesh/omarchy-boringday/issues/7).
+
+### Changed
+
+- **A quieter panel.** The six icon buttons are gone. Under the preview,
+  **Set as background** is the one button, and **More** (or `m`) holds saving
+  a copy, adding to the current theme, building a theme and opening the art
+  page. The list keeps a single **Shuffle**; fetching today's set again is
+  still `r` and a middle-click on the bar pill.
+- The rotation period is a dropdown — every hour, 3, 12 or 24 hours, or
+  today's piece — on its own row under the switch. It stays usable while
+  rotation is off, so the period can be picked first.
+- The list marks the piece that is on the wall.
+
+### Fixed
+
+- `boringday today` sets today's piece even when the triple has not been
+  fetched yet, or when the one held is from before midnight, instead of
+  returning after starting a fetch.
+
 ## [1.1.1] — 2026-11-19
 
 ### Fixed

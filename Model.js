@@ -97,6 +97,42 @@ function intervalLabel(seconds) {
   return plural(n, "second")
 }
 
+// ------------------------------------------------------------- release day
+//
+// What rotation lands on. "random" is a piece from the random endpoint every
+// interval; "today" follows the daily release instead, switching to the new
+// piece once it is out and leaving the wall alone in between. Checked against
+// this list for the reason extractMode is: the value is typed into shell.json
+// by hand, and anything unrecognised means the rotation it always meant.
+var ROTATE_TARGETS = ["random", "today"]
+var DEFAULT_ROTATE_TARGET = "random"
+
+function rotateTarget(value) {
+  var wanted = String(value === undefined || value === null ? "" : value).trim().toLowerCase()
+  return ROTATE_TARGETS.indexOf(wanted) === -1 ? DEFAULT_ROTATE_TARGET : wanted
+}
+
+// A piece is released at midnight UTC (its releaseDate reads
+// 2026-09-13T00:00:00.000Z), and the epoch is itself midnight UTC, so the
+// latest release is the clock floored to a whole day — no time zone involved.
+var DAY_MS = 86400000
+
+function releaseStart(now) {
+  return Math.floor(now / DAY_MS) * DAY_MS
+}
+
+function nextRelease(now) {
+  return releaseStart(now) + DAY_MS
+}
+
+// NaN when the field is missing or unreadable, so a caller can tell "released
+// before today" from "cannot say" and give the second the benefit of the doubt.
+function releasedAt(piece) {
+  if (!piece || !piece.releaseDate) return NaN
+  var t = Date.parse(piece.releaseDate)
+  return isFinite(t) ? t : NaN
+}
+
 function plural(count, unit) {
   return count + " " + unit + (count === 1 ? "" : "s")
 }

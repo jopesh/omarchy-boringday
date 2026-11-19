@@ -24,6 +24,7 @@
     "defaults": {
       "autoRotate": false,
       "intervalSeconds": 3600,
+      "rotateTo": "random",
       "notify": true,
       "extractMode": "pastel",
       "lightMode": false
@@ -45,6 +46,14 @@
         "step": 300,
         "defaultValue": 3600,
         "description": "The panel cycles through 1, 3, 12 and 24 hours (3600, 10800, 43200, 86400). Any other value in range is honoured and shown as itself; cycling from it lands on the nearest preset."
+      },
+      {
+        "key": "rotateTo",
+        "type": "enum",
+        "label": "Rotate to",
+        "options": ["random", "today"],
+        "defaultValue": "random",
+        "description": "\"random\" sets a random piece every interval. \"today\" follows the daily release instead: shortly after midnight UTC the new piece is set, and the interval is ignored. A piece set by hand after the release stays until the next one."
       },
       {
         "key": "notify",
