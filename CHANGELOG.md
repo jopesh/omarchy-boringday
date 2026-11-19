@@ -5,7 +5,17 @@ Notable changes to Another Boring Piece. Versions follow
 [GitHub release](https://github.com/jopesh/omarchy-boringday/releases) from a
 `v`-prefixed tag.
 
-## [1.1.0] — 2026-08-30
+## [1.1.1] — 2026-11-19
+
+### Fixed
+
+- At a fractional display scale (seen at 1.25) the first tag chip under the
+  preview was drawn without its left border; the chip row is now inset by one
+  border width so it is. Thanks to
+  [@rgouveiamendes](https://github.com/rgouveiamendes) in
+  [#5](https://github.com/jopesh/omarchy-boringday/pull/5).
+
+## [1.1.0] — 2026-11-19
 
 ### Added
 
@@ -57,5 +67,6 @@ Notable changes to Another Boring Piece. Versions follow
   current theme, `d` to save a copy, and a `boringday` IPC target so all of it
   works with no bar widget on screen.
 
+[1.1.1]: https://github.com/jopesh/omarchy-boringday/releases/tag/v1.1.1
 [1.1.0]: https://github.com/jopesh/omarchy-boringday/releases/tag/v1.1.0
 [1.0.0]: https://github.com/jopesh/omarchy-boringday/releases/tag/v1.0.0
