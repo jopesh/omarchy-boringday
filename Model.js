@@ -10,12 +10,31 @@ var API_RANDOM = "https://service.anotherboring.day/api/wallpapers/random-human"
 var ART_PAGE = "https://anotherboring.day/art/"
 var SITE = "https://anotherboring.day/"
 
-// The rotation periods the panel offers. A value set by hand in shell.json is
-// still honored as-is — it simply matches no chip, and intervalLabel()
-// describes whatever it finds.
+// The rotation periods the panel cycles through. A value set by hand in
+// shell.json is still honored as-is — the panel names whatever it finds
+// through intervalLabel(), and cycling from it lands on the nearest preset.
 var INTERVALS = [3600, 10800, 43200, 86400]
 var MIN_INTERVAL = 300
 var MAX_INTERVAL = 86400
+
+// The palette-extraction modes `aether --generate` accepts, straight from
+// `aether --list-modes`. The list is here rather than in the script because
+// the value arrives from shell.json, where it was typed by hand, and it ends
+// up as an argument on a command line: it is checked against a list we control
+// before it gets there, and anything unrecognised falls back to the default
+// rather than reaching aether and failing the whole generate. (aether's own
+// rejection prints a modes list of its own that is shorter than this one and
+// out of date, which is the other reason not to lean on it.)
+var EXTRACT_MODES = ["normal", "monochromatic", "analogous", "pastel", "material",
+  "colorful", "muted", "bright", "complementary", "triadic", "split-complementary",
+  "tetradic", "fire", "ocean", "forest", "earthtone", "neon", "sunset", "vaporwave",
+  "midnight", "aurora", "high-contrast", "duotone"]
+var DEFAULT_EXTRACT_MODE = "pastel"
+
+function extractMode(value) {
+  var wanted = String(value === undefined || value === null ? "" : value).trim().toLowerCase()
+  return EXTRACT_MODES.indexOf(wanted) === -1 ? DEFAULT_EXTRACT_MODE : wanted
+}
 
 // ------------------------------------------------------------------ ceilings
 //
@@ -82,32 +101,10 @@ function plural(count, unit) {
   return count + " " + unit + (count === 1 ? "" : "s")
 }
 
-// The chips the panel shows. ButtonGroup compares option values as strings,
-// so the seconds are stringified here rather than at the call site.
 // Reads after the word "every": "every hour", not "every 1 hour".
 function everyLabel(seconds) {
   var n = clampInterval(seconds)
   return n === 3600 ? "hour" : intervalLabel(n)
-}
-
-function intervalOptions() {
-  var out = []
-  for (var i = 0; i < INTERVALS.length; i++) {
-    out.push({
-      value: String(INTERVALS[i]),
-      label: (INTERVALS[i] / 3600) + "h",
-      tooltip: "Change every " + everyLabel(INTERVALS[i])
-    })
-  }
-  return out
-}
-
-// -1 for a value that is not one of the presets, so the panel can leave every
-// chip unselected rather than lying about which one is in force.
-function intervalIndex(seconds) {
-  var n = clampInterval(seconds)
-  for (var i = 0; i < INTERVALS.length; i++) if (INTERVALS[i] === n) return i
-  return -1
 }
 
 // Cycle to the next preset. An off-preset value snaps to the first preset
@@ -117,6 +114,16 @@ function nextInterval(seconds) {
   for (var i = 0; i < INTERVALS.length; i++)
     if (INTERVALS[i] > n) return INTERVALS[i]
   return INTERVALS[0]
+}
+
+// The mirror of it, and it snaps the same way: the largest preset below the
+// value, so a hand-edited 45m lands on 1h going up and wraps to 24h going
+// down, rather than either direction pretending 45m is one of the four.
+function prevInterval(seconds) {
+  var n = clampInterval(seconds)
+  for (var i = INTERVALS.length - 1; i >= 0; i--)
+    if (INTERVALS[i] < n) return INTERVALS[i]
+  return INTERVALS[INTERVALS.length - 1]
 }
 
 // --------------------------------------------------------------- sanitizing

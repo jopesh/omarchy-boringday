@@ -1,3 +1,6 @@
 *.qmlc
 *.jsc
 .qmlls.ini
+
+# Design canvas scratch
+.design/
