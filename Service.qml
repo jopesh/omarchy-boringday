@@ -31,7 +31,10 @@ Item {
   // hand-edited shell.json are the same switch. The service reads the config
   // itself rather than being told by the widget: a widget exists per monitor,
   // and rotation must have exactly one owner.
-  readonly property var settings: entryFor(shell ? shell.shellConfig : null)
+  //
+  // Third-party plugins receive a scoped shell facade with no shellConfig;
+  // barConfig is its detached copy of the bar section, where this entry lives.
+  readonly property var settings: entryFor(shell ? { bar: shell.barConfig } : null)
 
   // The bar's three sections in the order they are drawn, then the plugins
   // list. One scan over all four: the first entry claiming this plugin's id
