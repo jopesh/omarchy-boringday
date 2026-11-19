@@ -5,7 +5,7 @@ Notable changes to Another Boring Piece. Versions follow
 [GitHub release](https://github.com/jopesh/omarchy-boringday/releases) from a
 `v`-prefixed tag.
 
-## [Unreleased]
+## [1.2.0] — 2026-11-19
 
 ### Added
 
@@ -17,9 +17,18 @@ Notable changes to Another Boring Piece. Versions follow
   yet. A piece set by hand after the release stays until the next one.
   Suggested by [@rgouveiamendes](https://github.com/rgouveiamendes) in
   [#7](https://github.com/jopesh/omarchy-boringday/issues/7).
+- **Palette preview.** Highlighting **Build a theme from it** in the **More**
+  menu shows six dots of the palette aether would build from the piece, in the
+  configured extraction mode and light setting. It is read with aether's
+  read-only `--extract-palette`, from the full image when it is cached and from
+  the thumbnail otherwise.
 
 ### Changed
 
+- **Themes default to aether's own reading.** `extractMode` now defaults to
+  `normal`, where aether picks a monochrome or a chromatic palette from the
+  image, instead of `pastel`. Set `"extractMode": "pastel"` to keep the old
+  look; a mode already set in `shell.json` is unaffected.
 - **A quieter panel.** The six icon buttons are gone. Under the preview,
   **Set as background** is the one button, and **More** (or `m`) holds saving
   a copy, adding to the current theme, building a theme and opening the art
@@ -98,6 +107,7 @@ Notable changes to Another Boring Piece. Versions follow
   current theme, `d` to save a copy, and a `boringday` IPC target so all of it
   works with no bar widget on screen.
 
+[1.2.0]: https://github.com/jopesh/omarchy-boringday/releases/tag/v1.2.0
 [1.1.1]: https://github.com/jopesh/omarchy-boringday/releases/tag/v1.1.1
 [1.1.0]: https://github.com/jopesh/omarchy-boringday/releases/tag/v1.1.0
 [1.0.0]: https://github.com/jopesh/omarchy-boringday/releases/tag/v1.0.0

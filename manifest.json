@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "boringday.wallpapers",
   "name": "Another Boring Piece",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "author": "John Schmidt",
   "license": "MIT",
   "description": "Hand-picked fine art from anotherboring.day as your Omarchy background, with optional rotation on a schedule.",
@@ -26,7 +26,7 @@
       "intervalSeconds": 3600,
       "rotateTo": "random",
       "notify": true,
-      "extractMode": "pastel",
+      "extractMode": "normal",
       "lightMode": false
     },
     "schema": [
@@ -67,8 +67,8 @@
         "type": "enum",
         "label": "Theme extraction mode",
         "options": ["normal", "monochromatic", "analogous", "pastel", "material", "colorful", "muted", "bright", "complementary", "triadic", "split-complementary", "tetradic", "fire", "ocean", "forest", "earthtone", "neon", "sunset", "vaporwave", "midnight", "aurora", "high-contrast", "duotone"],
-        "defaultValue": "pastel",
-        "description": "How aether reads a palette out of the artwork when you build a theme from it. \"pastel\" is the default: a soft, low-chroma reading of the piece. \"normal\" hands the choice back to aether, which decides between a monochrome and a chromatic palette by analysing the image; the rest force a treatment. Unrecognised values fall back to \"pastel\"."
+        "defaultValue": "normal",
+        "description": "How aether reads a palette out of the artwork when you build a theme from it. \"normal\" is the default: aether decides between a monochrome and a chromatic palette by analysing the image. The rest force a treatment, such as \"pastel\" for a soft, low-chroma reading of the piece. Unrecognised values fall back to \"normal\"."
       },
       {
         "key": "lightMode",

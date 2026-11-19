@@ -29,11 +29,30 @@ var EXTRACT_MODES = ["normal", "monochromatic", "analogous", "pastel", "material
   "colorful", "muted", "bright", "complementary", "triadic", "split-complementary",
   "tetradic", "fire", "ocean", "forest", "earthtone", "neon", "sunset", "vaporwave",
   "midnight", "aurora", "high-contrast", "duotone"]
-var DEFAULT_EXTRACT_MODE = "pastel"
+var DEFAULT_EXTRACT_MODE = "normal"
 
 function extractMode(value) {
   var wanted = String(value === undefined || value === null ? "" : value).trim().toLowerCase()
   return EXTRACT_MODES.indexOf(wanted) === -1 ? DEFAULT_EXTRACT_MODE : wanted
+}
+
+// `aether --extract-palette` prints one "  N: #rrggbb" line per colour, 0 to
+// 15. Read by index rather than by order, and all sixteen or nothing: a
+// partial palette drawn as if it were the theme would be a wrong preview, and
+// no preview is the honest fallback.
+var PALETTE_SIZE = 16
+
+function parsePalette(text) {
+  var out = []
+  var lines = String(text || "").split("\n")
+  for (var i = 0; i < lines.length && i < 64; i++) {
+    var m = /^\s*(\d{1,2}):\s*(#[0-9a-fA-F]{6})\s*$/.exec(lines[i])
+    if (!m) continue
+    var n = Number(m[1])
+    if (n < PALETTE_SIZE) out[n] = m[2].toLowerCase()
+  }
+  for (var j = 0; j < PALETTE_SIZE; j++) if (!out[j]) return []
+  return out
 }
 
 // ------------------------------------------------------------------ ceilings
