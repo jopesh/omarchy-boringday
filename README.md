@@ -37,10 +37,12 @@ pill becomes 󰚰 while rotation is on — the glyph carries the state, so the b
 keeps one colour.
 
 The three rows are a selector: browsing previews a piece, and the wall only
-changes when you set it. The buttons under the preview act on the piece being
-previewed; the two on the list's own header — 󰒟 and 󰑐 — act on the list.
+changes when you set it. Under the preview, **Set as background** puts the
+previewed piece on the wall and **More** holds everything else you can do with
+it: save a copy, add it to the current theme, build a theme from it, or open
+its page. The row marked *on wall* is the one on screen.
 
-󰒟 refills the list rather than setting anything: today's piece stays pinned at
+**Shuffle**, on the list's header, refills the list rather than setting anything: today's piece stays pinned at
 the top and the two rows behind it are replaced by two more drawn at random.
 Setting a random piece outright is still what `boringday random` and the
 rotation do.
@@ -55,6 +57,7 @@ rotation do.
 | `d`       | Save a copy to your pictures folder                |
 | `e`       | Expand or collapse a truncated description         |
 | `o`       | Open the piece's page on anotherboring.day         |
+| `m`       | Open the More menu                                 |
 | `r`       | Fetch today's set again                            |
 | `a`       | Toggle automatic rotation                          |
 | `←` / `→` | Cycle the rotation period, cursor on that row       |
@@ -75,7 +78,7 @@ permanent copy.
 
 ### Building a theme from a piece
 
-`g`, or the 󰸌 button, hands the piece to [aether](https://github.com/omacom-io/aether) and lets
+`g`, or **More → Build a theme from it**, hands the piece to [aether](https://github.com/omacom-io/aether) and lets
 it retint the desktop from the artwork: sixteen colours out of the image and
 into Hyprland, waybar, mako, btop, the terminals and the editors, with the
 piece itself set as the wallpaper on the way through.
@@ -139,9 +142,10 @@ and a chromatic palette by analysing the image, while `monochromatic`,
 describes them. Both settings apply only to themes built from a piece, and
 anything unrecognised falls back to `pastel`.
 
-The panel names the period rather than offering it as buttons, so a value set
-by hand is shown as itself — `"intervalSeconds": 2700` reads "every 45
-minutes". Cycling from one lands on the nearest preset.
+The panel offers the presets and today's piece in a dropdown. A value set by
+hand is shown as itself — `"intervalSeconds": 2700` reads "Every 45
+minutes" — and matches no row. Cycling with `i` or `←` / `→` from one lands
+on the nearest preset.
 
 The interval is wall-clock, not uptime: the last change is persisted, so
 restarting the shell resumes the schedule rather than granting a fresh hour.

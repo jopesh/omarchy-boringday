@@ -137,6 +137,7 @@ Panel {
     var rows = []
     for (var i = 0; i < pieces.length; i++) rows.push({ kind: "piece", index: i })
     rows.push({ kind: "auto", index: 0 })
+    rows.push({ kind: "interval", index: 0 })
     return rows
   }
 
@@ -154,13 +155,11 @@ Panel {
   function moveCursor(dx, dy) {
     cursorActive = true
     if (cursorRows.length === 0) return
-    // Left and right cycle the rotation period while the cursor is on the
-    // rotation row, and mean nothing anywhere else. The chips this replaced
-    // needed a cursor of their own to walk between and a second row to live
-    // on; one value needs neither.
+    // Left and right step through the rotation choices while the cursor is
+    // on either rotation row, and mean nothing anywhere else.
     if (dy === 0) {
       var here = cursorRow()
-      if (!here || here.kind !== "auto" || dx === 0) return
+      if (!here || (here.kind !== "auto" && here.kind !== "interval") || dx === 0) return
       if (dx > 0) cycleInterval()
       else cycleIntervalBack()
       return
@@ -192,6 +191,7 @@ Panel {
     // Enter must set the piece the user is actually looking at.
     if (row.kind === "piece") setSelected()
     else if (row.kind === "auto") toggleAuto()
+    else if (row.kind === "interval") toggleMenu(intervalMenu)
   }
 
   // Rows register themselves so scrollCursorIntoView can find the item under
@@ -301,6 +301,81 @@ Panel {
     if (service) service.cycleIntervalBack()
   }
 
+  // ------------------------------------------------------------------ menus
+
+  function toggleMenu(menu) {
+    if (!menu) return
+    if (menu.opened) menu.close()
+    else menu.open()
+  }
+
+  function restoreKeys() {
+    keyCatcher.forceActiveFocus()
+  }
+
+  function closeMenus() {
+    moreMenu.close()
+    intervalMenu.close()
+  }
+
+  // What "More" offers for the piece being previewed. Built as data so the
+  // letter beside each row is the same letter keyActions answers to.
+  readonly property var moreOptions: {
+    var busy = service ? (service.applying || service.generating) : true
+    return [
+      { value: "download", label: "Save a copy to Pictures", hint: "d" },
+      { value: "install", label: "Add to the current theme", hint: "t" },
+      {
+        value: "theme",
+        label: aetherReady ? "Build a theme from it" : "Build a theme (needs aether)",
+        hint: "g",
+        enabled: aetherReady && !busy
+      },
+      { value: "open", label: "Open on anotherboring.day", hint: "o", separatorBefore: true }
+    ]
+  }
+
+  function runMoreAction(value) {
+    if (value === "download") download()
+    else if (value === "install") installToTheme()
+    else if (value === "theme") generateTheme()
+    else if (value === "open") openArtPage()
+  }
+
+  // The four presets, then following today's piece. The service owns what
+  // each choice writes; this only names them and marks the one in force.
+  readonly property var intervalOptions: {
+    var out = []
+    var follows = service ? service.followsToday : false
+    var seconds = service ? service.intervalSeconds : 0
+    for (var i = 0; i < Model.INTERVALS.length; i++) {
+      var preset = Model.INTERVALS[i]
+      out.push({
+        value: String(preset),
+        label: "Every " + Model.everyLabel(preset),
+        checked: !follows && seconds === preset
+      })
+    }
+    out.push({ value: "today", label: "Today's piece", hint: "daily",
+      checked: follows, separatorBefore: true })
+    return out
+  }
+
+  readonly property string intervalChoiceLabel: {
+    if (!service) return ""
+    return service.followsToday ? "Today's piece" : "Every " + service.intervalLabel
+  }
+
+  function chooseInterval(value) {
+    if (!service) return
+    if (value === "today") service.setRotateTo("today")
+    else service.setIntervalSeconds(Number(value))
+  }
+
+  function openMoreMenu() {
+    if (root.selected !== null && root.ready) toggleMenu(moreMenu)
+  }
+
   // The letters the panel answers to, as a table rather than a ladder of
   // else-ifs — the same letters the action tooltips name in their own text,
   // written here beside the functions they call.
@@ -308,13 +383,15 @@ Panel {
     "s": root.shuffleList, "d": root.download, "t": root.installToTheme,
     "g": root.generateTheme, "o": root.openArtPage, "r": root.refresh,
     "a": root.toggleAuto, "i": root.cycleInterval, "e": root.toggleDescription,
+    "m": root.openMoreMenu,
     "\r": root.setSelected, "\n": root.setSelected
   })
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  onOpenedChanged: if (opened) {
+  onOpenedChanged: if (!opened) closeMenus()
+  else {
     cursorActive = false
     cursorIndex = 0
     descriptionExpanded = false
@@ -700,56 +777,47 @@ Panel {
             }
           }
 
-          // Actions on the piece currently previewed.
+          // Actions on the piece currently previewed: the one that matters
+          // most as a button, the rest behind "More". Every one of them keeps
+          // its letter, so the keyboard reaches them without opening the menu.
           Row {
             width: parent.width
             spacing: Style.spacing.controlGap
 
-            PanelActionButton {
-              iconText: "󰸉"
-              tooltipText: "Set as background  (Enter)"
+            Button {
+              id: setButton
+              text: "Set as background"
+              tooltipText: "Enter"
+              bordered: true
+              selected: true
               foreground: root.foreground
               fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
               enabled: root.selected !== null && root.ready
+              opacity: enabled ? 1 : 0.5
               onClicked: root.setSelected()
             }
-            PanelActionButton {
-              iconText: "󰇚"
-              tooltipText: "Save a copy to Pictures  (d)"
+
+            Button {
+              id: moreButton
+              text: "More  󰅀"
+              tooltipText: moreMenu.opened ? "" : "m"
+              bordered: true
+              active: moreMenu.opened
               foreground: root.foreground
               fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
               enabled: root.selected !== null && root.ready
-              onClicked: root.download()
-            }
-            PanelActionButton {
-              iconText: "󰍛"
-              tooltipText: "Add to the current theme  (t)"
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-              enabled: root.selected !== null && root.ready
-              onClicked: root.installToTheme()
-            }
-            PanelActionButton {
-              iconText: "󰸌"
-              tooltipText: root.aetherReady
-                ? "Build a theme from this piece  (g)"
-                : "Build a theme from this piece — aether is not installed"
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-              enabled: root.selected !== null && root.ready && root.aetherReady
-                && !root.service.applying && !root.service.generating
-              onClicked: root.generateTheme()
-            }
-            PanelActionButton {
-              iconText: "󰖟"
-              tooltipText: "Open on anotherboring.day  (o)"
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-              enabled: root.selected !== null
-              onClicked: root.openArtPage()
+              opacity: enabled ? 1 : 0.5
+              onClicked: root.toggleMenu(moreMenu)
+
+              PopupMenu {
+                id: moreMenu
+                options: root.moreOptions
+                onPicked: function (value) { root.runMoreAction(value) }
+              }
             }
           }
-
           PanelSeparator {
             width: parent.width
             foreground: root.foreground
@@ -759,13 +827,11 @@ Panel {
             width: parent.width
             spacing: Style.space(8)
 
-            // The two controls that act on the list, on the list's own
-            // header rather than in the row above it. That row acts on the
-            // piece being previewed; these act on what is being chosen from,
-            // and a control reads as belonging to whatever it sits on.
+            // The list's one control sits on its own header: it acts on what
+            // is being chosen from, not on the piece being previewed.
             Item {
               width: parent.width
-              height: Math.max(sectionHeader.implicitHeight, listActions.implicitHeight)
+              height: Math.max(sectionHeader.implicitHeight, shuffleButton.implicitHeight)
 
               PanelSectionHeader {
                 id: sectionHeader
@@ -776,28 +842,19 @@ Panel {
                 fontFamily: root.fontFamily
               }
 
-              Row {
-                id: listActions
+              Button {
+                id: shuffleButton
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: Style.spacing.controlGap
-
-                PanelActionButton {
-                  iconText: "󰒟"
-                  tooltipText: "Shuffle in new pieces  (s)"
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
-                  enabled: root.ready
-                  onClicked: root.shuffleList()
-                }
-                PanelActionButton {
-                  iconText: "󰑐"
-                  tooltipText: "Fetch today's pieces again  (r)"
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
-                  enabled: root.ready
-                  onClicked: root.refresh()
-                }
+                text: "Shuffle"
+                tooltipText: "Two more pieces in place of these  (s)"
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                verticalPadding: Style.space(2)
+                enabled: root.ready && !(root.service && root.service.shufflingList)
+                opacity: enabled ? 1 : 0.5
+                onClicked: root.shuffleList()
               }
             }
 
@@ -831,17 +888,11 @@ Panel {
             foreground: root.foreground
           }
 
-          // Rotation, on one row: the label, the period, the switch. The
-          // period used to be four chips on a row of their own under a
-          // caption that named it a third time — three lines of card for one
-          // switch and one choice between four numbers.
-          //
-          // As a value rather than a set of chips it also stops lying. A
-          // period set by hand in shell.json matched no chip, so the chips
-          // could only leave themselves all unselected and let the caption
-          // explain; the value simply reads "every 45 minutes", and cycling
-          // from it lands on the nearest preset. The cost is that reaching
-          // 24h from 1h is three clicks rather than one.
+          // Rotation, as two rows: whether it runs, and what it changes to.
+          // The period is a dropdown rather than a value to click through, so
+          // any choice is one click away and the list says what the choices
+          // are. A period set by hand in shell.json still reads as itself on
+          // the trigger ("Every 45 minutes") and simply matches no row.
           CursorSurface {
             id: autoRow
             width: parent.width
@@ -849,8 +900,7 @@ Panel {
             foreground: root.foreground
             // No padding of its own. The switch already carries six pixels of
             // cursor-ring padding on every side, and that is the row's
-            // breathing room; adding controlPaddingY on top of it was making
-            // the row half again as tall as the control in it.
+            // breathing room.
             implicitHeight: autoContent.implicitHeight
 
             Component.onCompleted: root.registerCursorItem("auto", 0, autoRow)
@@ -870,13 +920,10 @@ Panel {
               anchors.rightMargin: Style.spacing.rowPaddingX / 2
               implicitHeight: Math.max(autoLabel.implicitHeight, autoSwitch.implicitHeight)
 
-              // Elides rather than wraps, and gives its width up to the period
-              // beside it: "every 45 minutes" is longer than any preset reads,
-              // and the label is the part that can afford to lose characters.
               Text {
                 id: autoLabel
                 anchors.left: parent.left
-                anchors.right: intervalCycle.left
+                anchors.right: autoSwitch.left
                 anchors.rightMargin: Style.spacing.controlGap
                 anchors.verticalCenter: parent.verticalCenter
                 text: "Rotate automatically"
@@ -886,54 +933,6 @@ Panel {
                 font.pixelSize: Style.font.body
                 maximumLineCount: 1
                 elide: Text.ElideRight
-              }
-
-              // Sized to a full control height rather than to the text, so the
-              // click target is the size of a control and not the size of two
-              // words. Dim while rotation is off, because the period is inert
-              // then — which is the other thing the chips row used to say.
-              Item {
-                id: intervalCycle
-                anchors.right: autoSwitch.left
-                anchors.rightMargin: Style.spacing.controlGap
-                anchors.verticalCenter: parent.verticalCenter
-                width: cycleRow.implicitWidth
-                height: Math.max(cycleRow.implicitHeight, Style.spacing.controlHeight)
-
-                Row {
-                  id: cycleRow
-                  anchors.centerIn: parent
-                  spacing: Style.space(4)
-
-                  Text {
-                    id: intervalLabel
-                    text: root.service ? root.service.rotationPhrase : ""
-                    textFormat: Text.PlainText
-                    color: cycleMouse.containsMouse || root.rotating
-                      ? root.foreground : root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    maximumLineCount: 1
-                  }
-
-                  Text {
-                    text: "󰅂"
-                    textFormat: Text.PlainText
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
-                  }
-                }
-
-                MouseArea {
-                  id: cycleMouse
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
-                  enabled: root.ready
-                  onEntered: root.focusRow("auto", 0)
-                  onClicked: root.cycleInterval()
-                }
               }
 
               ToggleSwitch {
@@ -950,6 +949,69 @@ Panel {
             }
           }
 
+          // Dim while rotation is off, because the choice is inert then — but
+          // still live, so the period can be picked before switching on.
+          CursorSurface {
+            id: intervalRow
+            width: parent.width
+            hasCursor: root.rowHasCursor("interval", 0)
+            foreground: root.foreground
+            implicitHeight: Math.max(intervalCaption.implicitHeight, intervalTrigger.implicitHeight)
+              + Style.spacing.labelGap * 2
+
+            Component.onCompleted: root.registerCursorItem("interval", 0, intervalRow)
+
+            MouseArea {
+              anchors.fill: parent
+              hoverEnabled: true
+              onEntered: root.focusRow("interval", 0)
+            }
+
+            Text {
+              id: intervalCaption
+              anchors.left: parent.left
+              anchors.leftMargin: Style.spacing.rowPaddingX / 2
+              anchors.right: intervalTrigger.left
+              anchors.rightMargin: Style.spacing.controlGap
+              anchors.verticalCenter: parent.verticalCenter
+              text: "Change"
+              textFormat: Text.PlainText
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              maximumLineCount: 1
+              elide: Text.ElideRight
+            }
+
+            Button {
+              id: intervalTrigger
+              anchors.right: parent.right
+              anchors.rightMargin: Style.spacing.rowPaddingX / 2
+              anchors.verticalCenter: parent.verticalCenter
+              width: Math.max(implicitWidth, Style.space(150))
+              leftAlign: true
+              bordered: true
+              active: intervalMenu.opened
+              hasCursor: root.rowHasCursor("interval", 0)
+              text: root.intervalChoiceLabel + "  󰅀"
+              foreground: root.rotating ? root.foreground : root.dim
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              enabled: root.ready
+              onHovered: function (on) { if (on) root.focusRow("interval", 0) }
+              onClicked: root.toggleMenu(intervalMenu)
+
+              // Opens upwards: this is the last control in the card, and a
+              // popup cannot draw past the bottom of the panel's window.
+              PopupMenu {
+                id: intervalMenu
+                upward: true
+                alignRight: true
+                options: root.intervalOptions
+                onPicked: function (value) { root.chooseInterval(value) }
+              }
+            }
+          }
           // Where the art comes from. Centred rather than flush left, because
           // every other line in the card is a control or a fact about the
           // piece and this is neither — the different alignment is what says
@@ -1064,10 +1126,26 @@ Panel {
       }
     }
 
+    // Which of the three is the one on the wall, since the selection no
+    // longer has to be — browsing previews without setting.
+    Text {
+      id: onWall
+      anchors.right: parent.right
+      anchors.rightMargin: Style.spacing.labelGap
+      anchors.verticalCenter: parent.verticalCenter
+      visible: !!(root.service && root.service.current && pieceRow.piece
+        && root.service.current.id === pieceRow.piece.id)
+      text: visible ? "on wall" : ""
+      textFormat: Text.PlainText
+      color: Color.accent
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+    }
+
     Column {
       anchors.left: pieceThumb.right
       anchors.leftMargin: Style.spacing.controlGap
-      anchors.right: parent.right
+      anchors.right: onWall.visible ? onWall.left : parent.right
       anchors.rightMargin: Style.spacing.labelGap
       anchors.verticalCenter: parent.verticalCenter
       spacing: 0
@@ -1094,6 +1172,190 @@ Panel {
         font.pixelSize: Style.font.caption
         maximumLineCount: 1
         elide: Text.ElideRight
+      }
+    }
+  }
+
+  // A small menu that opens off the control it is declared in: the panel's
+  // "More" actions and the rotation choices. Drawn like the shell's own
+  // Dropdown popup, but it can open upwards — the shell's opens downwards
+  // only, and the rotation choice is the last control in the card, where a
+  // downward popup would run past the bottom of the panel's window and be
+  // cut off. Rows are { value, label, hint, checked, enabled, separatorBefore }.
+  component PopupMenu: Popup {
+    id: menu
+
+    property var options: []
+    property bool upward: false
+    property bool alignRight: false
+    property int currentIndex: -1
+    readonly property var borderSpec: Border.localOrSurfaceSpec("popups", "border",
+      Color.popups.border, Color.popups.border, Style.normalBorderWidth)
+
+    signal picked(string value)
+
+    // The rows fill the popup, so the popup cannot take its width from them;
+    // it is measured from the longest label and hint instead. Longest by
+    // characters: the shell font is monospaced, and on one that is not the
+    // padding absorbs the difference.
+    function longest(key, prefixChecked) {
+      var best = ""
+      for (var i = 0; i < options.length; i++) {
+        var o = options[i]
+        var t = (prefixChecked && o.checked ? "✓  " : "") + String(o[key] || "")
+        if (t.length > best.length) best = t
+      }
+      return best
+    }
+    TextMetrics {
+      id: labelMeasure
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.bodySmall
+      text: menu.longest("label", true) + "✓  "
+    }
+    TextMetrics {
+      id: hintMeasure
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      text: menu.longest("hint", false)
+    }
+    readonly property real naturalWidth: Math.ceil(labelMeasure.advanceWidth + hintMeasure.advanceWidth)
+      + Style.spacing.controlPaddingX * 2 + Style.space(16)
+
+    function rowEnabled(i) {
+      return i >= 0 && i < options.length && options[i].enabled !== false
+    }
+
+    function step(delta) {
+      var i = currentIndex
+      for (var n = 0; n < options.length; n++) {
+        i = (i + delta + options.length) % options.length
+        if (rowEnabled(i)) { currentIndex = i; return }
+      }
+    }
+
+    function choose(i) {
+      if (!rowEnabled(i)) return
+      var value = String(options[i].value)
+      close()
+      picked(value)
+    }
+
+    x: alignRight && parent ? parent.width - width : 0
+    y: upward ? -height - Style.spacing.xxs : (parent ? parent.height : 0) + Style.spacing.xxs
+    width: Math.max(parent ? parent.width : 0, naturalWidth + leftPadding + rightPadding)
+    closePolicy: Popup.CloseOnPressOutsideParent | Popup.CloseOnEscape
+    focus: true
+    padding: Style.spacing.hairline
+    leftPadding: Border.left(borderSpec) + Style.spacing.hairline
+    rightPadding: Border.right(borderSpec) + Style.spacing.hairline
+    topPadding: Border.top(borderSpec) + Style.spacing.hairline
+    bottomPadding: Border.bottom(borderSpec) + Style.spacing.hairline
+
+    background: BorderSurface {
+      color: Color.popups.background
+      borderSpec: menu.borderSpec
+      radius: Style.cornerRadius
+    }
+
+    onOpened: {
+      currentIndex = -1
+      for (var i = 0; i < options.length; i++) if (options[i].checked) currentIndex = i
+      if (!rowEnabled(currentIndex)) { currentIndex = -1; step(1) }
+      keys.forceActiveFocus()
+    }
+    // Hand the keyboard back to the panel, which stops answering keys
+    // while a popup holds them.
+    onClosed: Qt.callLater(root.restoreKeys)
+
+    contentItem: Item {
+      id: keys
+      implicitHeight: menuColumn.implicitHeight
+      focus: true
+
+      Keys.onPressed: function (event) {
+        if (event.key === Qt.Key_Escape) menu.close()
+        else if (event.key === Qt.Key_Down || event.text === "j") menu.step(1)
+        else if (event.key === Qt.Key_Up || event.text === "k") menu.step(-1)
+        else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                 || event.key === Qt.Key_Space) menu.choose(menu.currentIndex)
+        else {
+          // A row's letter picks it directly, as it does with the menu shut.
+          var letter = String(event.text || "").toLowerCase()
+          for (var i = 0; letter && i < menu.options.length; i++) {
+            if (menu.options[i].hint === letter) { menu.choose(i); break }
+          }
+        }
+        event.accepted = true
+      }
+
+      Column {
+        id: menuColumn
+        width: parent.width
+
+        Repeater {
+          model: menu.options
+
+          Column {
+            id: entry
+            required property var modelData
+            required property int index
+            readonly property bool usable: modelData.enabled !== false
+            readonly property bool hot: menu.currentIndex === index && usable
+            width: menuColumn.width
+
+            Rectangle {
+              visible: entry.modelData.separatorBefore === true && entry.index > 0
+              width: parent.width
+              height: Style.spacing.hairline
+              color: Util.alpha(Color.popups.text, 0.15)
+            }
+
+            Rectangle {
+              width: parent.width
+              height: Style.spacing.popupRowHeight
+              color: entry.hot ? Style.hoverFillFor(Color.popups.text, Color.accent) : "transparent"
+
+              Text {
+                id: entryLabel
+                anchors.left: parent.left
+                anchors.leftMargin: Style.spacing.controlPaddingX
+                anchors.right: entryHint.left
+                anchors.rightMargin: Style.space(12)
+                anchors.verticalCenter: parent.verticalCenter
+                text: (entry.modelData.checked ? "✓  " : "") + entry.modelData.label
+                textFormat: Text.PlainText
+                color: !entry.usable ? Qt.darker(Color.popups.text, 1.8)
+                  : entry.hot ? Style.hoverStateColor(Color.popups.text, Color.accent)
+                  : Color.popups.text
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                elide: Text.ElideRight
+              }
+
+              Text {
+                id: entryHint
+                anchors.right: parent.right
+                anchors.rightMargin: Style.spacing.controlPaddingX
+                anchors.verticalCenter: parent.verticalCenter
+                text: entry.modelData.hint || ""
+                textFormat: Text.PlainText
+                color: Qt.darker(Color.popups.text, 1.8)
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+
+              MouseArea {
+                anchors.fill: parent
+                hoverEnabled: true
+                enabled: entry.usable
+                cursorShape: Qt.PointingHandCursor
+                onEntered: menu.currentIndex = entry.index
+                onClicked: menu.choose(entry.index)
+              }
+            }
+          }
+        }
       }
     }
   }

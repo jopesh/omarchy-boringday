@@ -18,6 +18,18 @@ Notable changes to Another Boring Piece. Versions follow
   Suggested by [@rgouveiamendes](https://github.com/rgouveiamendes) in
   [#7](https://github.com/jopesh/omarchy-boringday/issues/7).
 
+### Changed
+
+- **A quieter panel.** The six icon buttons are gone. Under the preview,
+  **Set as background** is the one button, and **More** (or `m`) holds saving
+  a copy, adding to the current theme, building a theme and opening the art
+  page. The list keeps a single **Shuffle**; fetching today's set again is
+  still `r` and a middle-click on the bar pill.
+- The rotation period is a dropdown — every hour, 3, 12 or 24 hours, or
+  today's piece — on its own row under the switch. It stays usable while
+  rotation is off, so the period can be picked first.
+- The list marks the piece that is on the wall.
+
 ### Fixed
 
 - `boringday today` sets today's piece even when the triple has not been
