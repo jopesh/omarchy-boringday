@@ -329,7 +329,11 @@ Panel {
         value: "theme",
         label: aetherReady ? "Build a theme from it" : "Build a theme (needs aether)",
         hint: "g",
-        enabled: aetherReady && !busy
+        enabled: aetherReady && !busy,
+        // Six accents of the palette a build would use, shown while the row
+        // is highlighted. Always present on this row, empty until aether
+        // answers, so the menu measures the same before and after.
+        swatches: service && selected ? service.paletteFor(selected).slice(1, 7) : []
       },
       { value: "open", label: "Open on anotherboring.day", hint: "o", separatorBefore: true }
     ]
@@ -858,7 +862,9 @@ Panel {
 
               PopupMenu {
                 id: moreMenu
+                bounds: column
                 options: root.moreOptions
+                onAboutToShow: if (root.service && root.aetherReady) root.service.requestPalette(root.selected)
                 onPicked: function (value) { root.runMoreAction(value) }
               }
             }
@@ -1050,6 +1056,7 @@ Panel {
               // popup cannot draw past the bottom of the panel's window.
               PopupMenu {
                 id: intervalMenu
+                bounds: column
                 upward: true
                 alignRight: true
                 options: root.intervalOptions
@@ -1266,6 +1273,18 @@ Panel {
     }
     readonly property real naturalWidth: Math.ceil(labelMeasure.advanceWidth + hintMeasure.advanceWidth)
       + Style.spacing.controlPaddingX * 2 + Style.space(16)
+      + (hasSwatches ? swatchesWidth + Style.space(10) : 0)
+
+    // Room for a row's swatches is kept whether or not they are showing, so
+    // the menu does not widen the moment a palette arrives or a row lights up.
+    readonly property bool hasSwatches: {
+      for (var i = 0; i < options.length; i++) if (options[i].swatches !== undefined) return true
+      return false
+    }
+    readonly property int swatchCount: 6
+    readonly property real swatchSize: Style.space(8)
+    readonly property real swatchGap: Style.space(3)
+    readonly property real swatchesWidth: swatchSize * swatchCount + swatchGap * (swatchCount - 1)
 
     function rowEnabled(i) {
       return i >= 0 && i < options.length && options[i].enabled !== false
@@ -1286,7 +1305,21 @@ Panel {
       picked(value)
     }
 
-    x: alignRight && parent ? parent.width - width : 0
+    // The card the menu has to stay inside. Opening from a button partway
+    // across, a menu wider than the room to the card's edge would otherwise
+    // run off the panel — and off the screen, with the bar on the right — so
+    // it is slid back along the button until it fits.
+    property Item bounds: null
+
+    x: {
+      var want = alignRight && parent ? parent.width - width : 0
+      if (!bounds || !parent) return want
+      // mapToItem is not a binding dependency; reading the button's own x
+      // is, so the menu re-measures when the Row lays the button out.
+      void parent.x
+      var origin = parent.mapToItem(bounds, 0, 0)
+      return Math.max(-origin.x, Math.min(want, bounds.width - origin.x - width))
+    }
     y: upward ? -height - Style.spacing.xxs : (parent ? parent.height : 0) + Style.spacing.xxs
     width: Math.max(parent ? parent.width : 0, naturalWidth + leftPadding + rightPadding)
     closePolicy: Popup.CloseOnPressOutsideParent | Popup.CloseOnEscape
@@ -1376,6 +1409,29 @@ Panel {
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.bodySmall
                 elide: Text.ElideRight
+              }
+
+              // The palette this row would build, drawn only while the row
+              // is highlighted — by the pointer or the keyboard alike.
+              Row {
+                anchors.right: entryHint.left
+                anchors.rightMargin: Style.space(10)
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: menu.swatchGap
+                visible: entry.hot && swatchRepeater.count > 0
+
+                Repeater {
+                  id: swatchRepeater
+                  model: entry.modelData.swatches || []
+
+                  Rectangle {
+                    required property var modelData
+                    width: menu.swatchSize
+                    height: menu.swatchSize
+                    radius: width / 2
+                    color: modelData
+                  }
+                }
               }
 
               Text {

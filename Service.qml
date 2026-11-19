@@ -1013,6 +1013,86 @@ Item {
     }
   }
 
+  // ------------------------------------------------------ palette preview
+  //
+  // What a generate would paint, read without applying anything: aether's
+  // read-only `--extract-palette`, with the same mode and light flag the
+  // generate passes. The panel shows it beside "Build a theme from it".
+  //
+  // From the full image when it is already in the cache — that is the file a
+  // generate reads, so the preview is exact — and from the thumbnail
+  // otherwise, which gives a close reading without pulling megabytes down to
+  // fill a menu row. Asked again every time the menu opens, since a Set may
+  // have fetched the full image since; it takes a fraction of a second, and
+  // the last answer stays on screen until the new one lands.
+
+  // "<id>|<mode>|<light>" → sixteen "#rrggbb" strings.
+  property var palettes: ({})
+  property string paletteKey: ""
+  property var palettePending: null
+
+  function paletteKeyFor(piece) {
+    return piece ? piece.id + "|" + extractMode + "|" + (lightMode ? "1" : "0") : ""
+  }
+
+  function paletteFor(piece) {
+    var key = paletteKeyFor(piece)
+    return key && palettes[key] ? palettes[key] : []
+  }
+
+  readonly property string paletteScript: [
+    "set -euo pipefail",
+    "full=$1",
+    "thumb=$2",
+    "mode=$3",
+    "light=$4",
+    "command -v aether >/dev/null 2>&1 || exit 5",
+    "src=$thumb",
+    "if [ -f \"$full\" ]; then src=$full; fi",
+    "[ -f \"$src\" ] || exit 6",
+    "args=(--extract-palette \"$src\" --extract-mode \"$mode\")",
+    "if [ \"$light\" = \"1\" ]; then args+=(--light-mode); fi",
+    "aether \"${args[@]}\""
+  ].join("\n")
+
+  function requestPalette(piece) {
+    if (!piece || !aetherReady) return
+    var thumb = thumbs ? thumbs[piece.id] : ""
+    if (!thumb) return
+    // One at a time; the newest request waits and anything older is dropped,
+    // since only the piece being looked at matters.
+    if (paletteProc.running) {
+      palettePending = piece
+      return
+    }
+    paletteKey = paletteKeyFor(piece)
+    paletteProc.command = scriptCommand(20, paletteScript, [
+      wallpaperDir + "/" + piece.id + Model.extensionFor(piece.url),
+      thumb, extractMode, lightMode ? "1" : "0"])
+    paletteProc.running = true
+  }
+
+  Process {
+    id: paletteProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var colors = Model.parsePalette(text)
+        if (colors.length === 0 || !root.paletteKey) return
+        var next = Object.assign({}, root.palettes)
+        next[root.paletteKey] = colors
+        root.palettes = next
+      }
+    }
+    onExited: {
+      if (root.palettePending) {
+        var piece = root.palettePending
+        root.palettePending = null
+        Qt.callLater(function () { root.requestPalette(piece) })
+      }
+    }
+  }
+
   function openArtPage(piece) {
     if (!piece) return
     Quickshell.execDetached(["xdg-open", piece.artPage])

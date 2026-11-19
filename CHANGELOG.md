@@ -17,6 +17,11 @@ Notable changes to Another Boring Piece. Versions follow
   yet. A piece set by hand after the release stays until the next one.
   Suggested by [@rgouveiamendes](https://github.com/rgouveiamendes) in
   [#7](https://github.com/jopesh/omarchy-boringday/issues/7).
+- **Palette preview.** Highlighting **Build a theme from it** in the **More**
+  menu shows six dots of the palette aether would build from the piece, in the
+  configured extraction mode and light setting. It is read with aether's
+  read-only `--extract-palette`, from the full image when it is cached and from
+  the thumbnail otherwise.
 
 ### Changed
 
