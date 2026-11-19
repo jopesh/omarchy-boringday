@@ -1,0 +1,35 @@
+# Keeps manifest.json on the version the changelog says was released last.
+#
+# The shell reads the manifest's version, and release.yml publishes a tag only
+# when it matches the manifest. This check covers the other side: between
+# releases the manifest keeps the newest numbered CHANGELOG.md section's
+# version, and work in progress goes under "## [Unreleased]". Cutting a release
+# renames that heading and bumps the manifest in the same commit, so a branch
+# where only one of the two moved fails here instead of at tag time.
+name: version
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  manifest-matches-changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare manifest.json with CHANGELOG.md
+        run: |
+          set -euo pipefail
+          manifest="$(jq -r '.version' manifest.json)"
+          changelog="$(grep -m1 -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | tr -d '#[] ')"
+          if [ -z "$changelog" ]; then
+            echo "::error::CHANGELOG.md has no numbered version section"
+            exit 1
+          fi
+          if [ "$manifest" != "$changelog" ]; then
+            echo "::error file=manifest.json::manifest.json says $manifest, the newest CHANGELOG.md section is $changelog"
+            exit 1
+          fi
+          echo "manifest.json and CHANGELOG.md agree on $manifest"
