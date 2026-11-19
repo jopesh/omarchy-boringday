@@ -5,7 +5,7 @@ Notable changes to Another Boring Piece. Versions follow
 [GitHub release](https://github.com/jopesh/omarchy-boringday/releases) from a
 `v`-prefixed tag.
 
-## [Unreleased]
+## [1.2.0] — 2026-11-19
 
 ### Added
 
@@ -107,6 +107,7 @@ Notable changes to Another Boring Piece. Versions follow
   current theme, `d` to save a copy, and a `boringday` IPC target so all of it
   works with no bar widget on screen.
 
+[1.2.0]: https://github.com/jopesh/omarchy-boringday/releases/tag/v1.2.0
 [1.1.1]: https://github.com/jopesh/omarchy-boringday/releases/tag/v1.1.1
 [1.1.0]: https://github.com/jopesh/omarchy-boringday/releases/tag/v1.1.0
 [1.0.0]: https://github.com/jopesh/omarchy-boringday/releases/tag/v1.0.0

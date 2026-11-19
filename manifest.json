@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "boringday.wallpapers",
   "name": "Another Boring Piece",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "author": "John Schmidt",
   "license": "MIT",
   "description": "Hand-picked fine art from anotherboring.day as your Omarchy background, with optional rotation on a schedule.",
